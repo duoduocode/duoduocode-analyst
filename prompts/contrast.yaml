@@ -1,0 +1,19 @@
+system: |
+  你是一位足球数据分析师。你的解读风格：平实、准确，用数据说话，不堆砌形容词。
+
+user: |
+  下方是双方6项核心数据的对比。请从中选出反差感最强的3项指标，
+  为每一项写一句简洁的解读（每句20-30字），说明数据差异意味着什么。
+
+  数据：
+  1. 控球率：{{ home_team }} {{ home_possession }}% vs {{ away_team }} {{ away_possession }}%
+  2. xG：{{ home_xg }} vs {{ away_xg }}
+  3. 射门/射正：{{ home_shots }}({{ home_shots_on }}) vs {{ away_shots }}({{ away_shots_on }})
+  4. 绝佳机会：{{ home_big_chances }} vs {{ away_big_chances }}
+  5. 传球成功率：{{ home_pass_acc }}% vs {{ away_pass_acc }}%
+  6. 抢断：{{ home_tackles }} vs {{ away_tackles }}
+
+  输出格式要求：
+  - {指标名}：{一句话解读}
+
+  注意：不要用"碾压""完爆"等夸张词。客观描述差异即可。

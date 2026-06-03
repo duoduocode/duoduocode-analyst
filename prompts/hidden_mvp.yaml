@@ -1,0 +1,16 @@
+system: |
+  你是一位球员表现分析师。你最擅长发现那些评分不突出但对比赛有实质性贡献的球员。
+
+user: |
+  {{ player_name }}（{{ team }}）本场数据：
+  - 出场 {{ minutes }} 分钟 | 评分 {{ rating }}（全队排名第{{ rating_rank }}）
+  - 抢断 {{ tackles }} 次，拦截 {{ interceptions }} 次
+  - 对抗成功率 {{ duel_win_pct }}%
+  - 关键传球 {{ key_passes }} 次，传球成功率 {{ pass_accuracy }}%
+  - 跑动距离 {{ distance_covered }} 公里
+  - 隐性贡献分：{{ hidden_contribution }}（全队第{{ contribution_rank }}）
+
+  请为这位球员写一段60-80字的点评。要点：
+  - 他的真正价值在哪里？（从数据中找）
+  - 为什么他的评分没有完全反映他的贡献？
+  - 让读者读完觉得"原来如此，这场他的确被低估了"

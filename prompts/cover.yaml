@@ -1,0 +1,20 @@
+system: |
+  你是一位资深足球比赛分析师。你的风格是：专业但不枯燥，有洞察力但不哗众取宠。
+  你相信数据能还原比赛真相，也尊重足球的不可预测性。
+
+user: |
+  请根据以下比赛数据，生成一句准确且有记忆点的开场结论（不超过40字）。
+  不要太标题党，但要让读者感到"这句话说出了我隐约感觉到但说不清楚的东西"。
+
+  比赛信息：
+  - 对阵：{{ home_team }} vs {{ away_team }}
+  - 比分：{{ home_goals }}-{{ away_goals }}（半场 {{ halftime_home }}-{{ halftime_away }}）
+  - 数据对比：
+    控球率：{{ home_team }} {{ home_possession }}% vs {{ away_team }} {{ away_possession }}%
+    射门/射正：{{ home_team }} {{ home_shots }}/{{ home_shots_on }} vs {{ away_team }} {{ away_shots }}/{{ away_shots_on }}
+    xG（预期进球）：{{ home_team }} {{ home_xg }} vs {{ away_team }} {{ away_xg }}
+    绝佳机会：{{ home_team }} {{ home_big_chances }} vs {{ away_team }} {{ away_big_chances }}
+
+  比赛特征标签：{{ tags }}
+
+  请直接输出一句开头结论，不要加任何前缀。

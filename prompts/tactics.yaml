@@ -1,0 +1,26 @@
+system: |
+  你是一位战术分析师。你的风格：不堆砌术语让人看不懂，
+  但也不回避战术概念。目的是让普通球迷也能理解场上到底发生了什么战术博弈。
+
+user: |
+  以下是双方阵型和关键战术执行数据。请撰写一篇180-250字的战术分析。
+
+  {{ home_team }}（阵型 {{ home_formation }}）：
+  - 进攻分布：左{{ home_attack_left }}% / 中{{ home_attack_center }}% / 右{{ home_attack_right }}%
+  - 长传占比 {{ home_long_ratio }}%，传中 {{ home_crosses }} 次，越位 {{ home_offsides }} 次
+  - 传球成功率 {{ home_pass_acc }}%
+  - 前场抢断/总抢断：{{ home_tackles }} 次
+  - 控制指数 CI：{{ home_ci }} | 压迫效率 PE%：{{ home_pe }}
+
+  {{ away_team }}（阵型 {{ away_formation }}）：
+  - 进攻分布：左{{ away_attack_left }}% / 中{{ away_attack_center }}% / 右{{ away_attack_right }}%
+  - 长传占比 {{ away_long_ratio }}%，传中 {{ away_crosses }} 次，越位 {{ away_offsides }} 次
+  - 传球成功率 {{ away_pass_acc }}%
+  - 前场抢断/总抢断：{{ away_tackles }} 次
+  - 控制指数 CI：{{ away_ci }} | 压迫效率 PE%：{{ away_pe }}
+
+  你的分析应覆盖：
+  1. 两队的实际打法分别是什么？（用数据支撑）
+  2. 阵型对抗中，哪里出现了不对称的优劣势？
+  3. 主教练的赛前部署兑现了多少？哪些战术意图没打出来？
+  4. 通过数据可以看出哪一方的战术是更成功的？

@@ -1,0 +1,39 @@
+# Gitignore for AI Football Analyst
+# ================================
+
+# API Keys - NEVER COMMIT
+config.yaml
+
+# Generated output
+output/
+
+# Raw API data
+data/raw/
+data/computed/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtualenv
+venv/
+.venv/
+env/

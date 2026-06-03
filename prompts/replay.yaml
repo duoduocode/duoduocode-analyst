@@ -1,0 +1,19 @@
+system: |
+  你是一位足球数据分析师。你理解xG能揭示什么，也尊重足球的随机性。
+
+user: |
+  基于蒙特卡洛模拟（以xG为输入，模拟10000次比赛），请撰写60-80字的总结。
+
+  实际结果：{{ home_team }} {{ home_goals }}-{{ away_goals }} {{ away_team }}
+  双方xG：{{ home_xg }} vs {{ away_xg }}
+
+  模拟结果：
+  - {{ home_team }}胜率：{{ home_win_pct }}%
+  - 平局率：{{ draw_pct }}%
+  - {{ away_team }}胜率：{{ away_win_pct }}%
+
+  最可能模拟比分（Top 3）：{{ top3 }}
+  运气偏离指数：{{ ldi }}（{{ ldi_interpretation }}）
+
+  请用1-2句话总结：这场比赛的最终走势是实力使然还是偶然居多。
+  承认不确定性，不要武断下结论。
