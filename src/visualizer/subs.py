@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -21,7 +23,7 @@ def plot_subs_comparison(
         plt.close(fig)
         return output_path
 
-    labels = [f"{s.get('time', '?')}'\n↑{s.get('player_in', '?')}" for s in subs_data]
+    labels = [f"{s.get('time', '?')}'\n↑{s.get('player_in', '?')}\n↓{s.get('player_out', '?')}" for s in subs_data]
 
     fig, ax = plt.subplots(figsize=(10, 4))
 

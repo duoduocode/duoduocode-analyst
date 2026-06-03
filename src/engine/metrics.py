@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -378,9 +380,11 @@ def _compute_subs_effect(raw: RawMatchData) -> tuple[list[dict], list[dict]]:
     subs_events = [e for e in raw.events if e.event_type == "subst"]
 
     for ev in subs_events:
+        # API-Football: player_name = 被换下的球员, assist_name = 换上的球员
         sub_info = {
             "time": ev.time_elapsed,
-            "player_in": ev.player_name,
+            "player_out": ev.player_name,
+            "player_in": ev.assist_name or "",
             "team": ev.team_name,
         }
         if ev.team_id == raw.home_team.id:

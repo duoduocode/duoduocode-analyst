@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from src.collector.api_client import PlayerStats
 
 

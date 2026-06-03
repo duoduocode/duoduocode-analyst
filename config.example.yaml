@@ -1,13 +1,12 @@
-api_football:
-  base_url: "https://v3.football.api-sports.io"
-  api_key: "${API_FOOTBALL_KEY}"
-  api_host: "v3.football.api-sports.io"
+sportmonks:
+  base_url: "https://api.sportmonks.com/v3/football"
+  api_token: "${SPORTMONKS_API_TOKEN}"
 
 llm:
   provider: "deepseek"
   api_key: "${DEEPSEEK_API_KEY}"
-  base_url: "https://api.deepseek.com/v1"
-  model: "deepseek-chat"
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-pro"
   temperature: 0.7
   max_tokens: 800
 

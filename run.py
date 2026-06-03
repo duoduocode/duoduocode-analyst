@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from src.collector.api_client import APIFootballClient, fetch_all
+from src.collector.api_client import SportMonksClient, fetch_all
 from src.engine.metrics import compute_all
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -225,7 +225,7 @@ def main():
     config = load_config(args.config)
 
     if args.league and args.date:
-        client = APIFootballClient(config["api_football"])
+        client = SportMonksClient(config["sportmonks"])
         fixtures = client.get_fixtures_by_date(
             args.league,
             config.get("competition", {}).get("season", 2026),
@@ -243,7 +243,7 @@ def main():
         logger.info(f"处理比赛 #{match_id}...")
 
         try:
-            raw = fetch_all(match_id, config["api_football"])
+            raw = fetch_all(match_id, config["sportmonks"])
         except Exception as e:
             logger.error(f"数据采集失败 #{match_id}: {e}")
             continue
