@@ -149,6 +149,7 @@ def main():
     parser.add_argument("--date", type=str, help="日期 YYYY-MM-DD")
     parser.add_argument("--dry-run", action="store_true", help="仅采集数据并计算指标")
     parser.add_argument("--no-images", action="store_true", help="跳过图表生成")
+    parser.add_argument("--use-cache", action="store_true", help="使用缓存的原始数据（不调用SportMonks API）")
     parser.add_argument("--config", type=str, default="config.yaml", help="配置文件路径")
     args = parser.parse_args()
 
@@ -173,7 +174,12 @@ def main():
         logger.info(f"处理比赛 #{match_id}...")
 
         try:
-            raw = fetch_all(match_id, config["sportmonks"])
+            if args.use_cache:
+                from src.collector.api_client import load_cached_raw
+                raw = load_cached_raw(match_id)
+                logger.info(f"使用缓存数据: {raw.home_team.name} vs {raw.away_team.name}")
+            else:
+                raw = fetch_all(match_id, config["sportmonks"])
         except Exception as e:
             logger.error(f"数据采集失败 #{match_id}: {e}")
             continue

@@ -6,7 +6,7 @@ from pathlib import Path
 from src.collector.api_client import PlayerStats, RawMatchData
 from src.composer.data_builder import _classify_signals, _build_phases
 from src.engine.metrics import ComputedData, _stat
-from src.engine.signals import SignalResult
+from src.engine.signals import SignalResult, _compute_king_scores
 
 CATEGORY_CN = {
     "score_deviation": "比分背离",
@@ -197,6 +197,61 @@ def _generate_players_html(
 
 
 # ────────────────────────────────────────────────
+# Player contribution kings (进攻王/防守王/均衡王)
+# ────────────────────────────────────────────────
+
+def _generate_kings_html(raw: RawMatchData) -> str:
+    """Generate Top 3 offensive/defensive/balanced contribution tables for both teams."""
+    king_data = _compute_king_scores(raw)
+
+    md = "## 球员贡献排行榜\n\n"
+    md += (
+        "> 进攻分 = (进球x25 + 助攻x15 + xGx20 + 射正x5 + 关键传球x6 + 过人x5 + 三区传球x1.5) x 分钟系数 + 事件加成\n"
+        "> 防守分 = (成功抢断x10 + 拦截x8 + 解围x3 + 封堵x8 + 球权回收x4 + 赢得对抗x4) x 分钟系数\n"
+        "> 均衡分 = 2 x 进攻分 x 防守分 / (进攻分 + 防守分)，门将不参与排名\n\n"
+    )
+
+    categories = [
+        ("进攻王", "attack", "进攻分", "{:.1f}"),
+        ("防守王", "defense", "防守分", "{:.1f}"),
+        ("均衡王", "balanced", "均衡分", "{:.1f}"),
+    ]
+
+    for cat_label, key, col_label, fmt in categories:
+        md += f"### {cat_label} Top 3\n\n"
+
+        for team_name in [raw.home_team.name, raw.away_team.name]:
+            td = king_data.get(team_name, {})
+            outfield = [p for p in td.get("players", []) if p["pos"] != "G"]
+            top3 = sorted(outfield, key=lambda x: x[key], reverse=True)[:3]
+
+            if not top3:
+                continue
+
+            md += f"**{team_name}**\n\n"
+
+            if key == "balanced":
+                md += "| 排名 | 球员 | 位置 | 评分 | 出场 | 进攻分 | 防守分 | 均衡分 |\n"
+                md += "|:---:|------|:---:|:---:|:---:|:---:|:---:|:---:|\n"
+                for i, p in enumerate(top3, 1):
+                    md += (
+                        f"| {i} | {p['name']} | {p['pos']} | {p['rating']} | {p['mins']}' | "
+                        f"{p['attack']:.1f} | {p['defense']:.1f} | {p['balanced']:.1f} |\n"
+                    )
+            else:
+                md += f"| 排名 | 球员 | 位置 | 评分 | 出场 | {col_label} |\n"
+                md += "|:---:|------|:---:|:---:|:---:|:---:|\n"
+                for i, p in enumerate(top3, 1):
+                    md += (
+                        f"| {i} | {p['name']} | {p['pos']} | {p['rating']} | {p['mins']}' | "
+                        f"{p[key]:.1f} |\n"
+                    )
+            md += "\n"
+
+    return md
+
+
+# ────────────────────────────────────────────────
 # Main report builder
 # ────────────────────────────────────────────────
 
@@ -281,6 +336,12 @@ def build_report(
     arc_html = _generate_phases_arc_html(raw, signals)
     if arc_html:
         md += arc_html
+        md += "---\n\n"
+
+    # ── 3.5. 球员贡献排行榜 ──
+    kings_html = _generate_kings_html(raw)
+    if kings_html:
+        md += kings_html
         md += "---\n\n"
 
     # ── 4. Momentum chart ──

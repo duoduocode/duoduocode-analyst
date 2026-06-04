@@ -648,8 +648,87 @@ def _save_raw_data(raw: RawMatchData):
                 else:
                     result[f.name] = val
             return result
+        if isinstance(obj, list):
+            return [_serialize(v) for v in obj]
+        if isinstance(obj, dict):
+            return {str(k): _serialize(v) for k, v in obj.items()}
         return obj
 
     data = _serialize(raw)
     with open(base / "raw_data.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+
+
+def load_cached_raw(match_id: int) -> RawMatchData:
+    """Load a previously saved RawMatchData from data/raw/{match_id}/raw_data.json."""
+    base = Path("data/raw") / str(match_id) / "raw_data.json"
+    if not base.exists():
+        raise FileNotFoundError(f"Cached raw data not found: {base}")
+
+    with open(base, "r", encoding="utf-8") as f:
+        d = json.load(f)
+
+    _TYPE_MAP = {
+        "TeamInfo": TeamInfo, "CoachInfo": CoachInfo, "ScoreInfo": ScoreInfo,
+        "PlayerStats": PlayerStats, "MatchEvent": MatchEvent,
+        "LineupPlayer": LineupPlayer, "LineupInfo": LineupInfo,
+        "PeriodScore": PeriodScore, "PeriodData": PeriodData,
+        "TrendPoint": TrendPoint, "RawMatchData": RawMatchData,
+    }
+
+    import dataclasses as dc
+    import re as _re
+
+    def _parse_trendpoint_str(s: str):
+        """Parse 'TrendPoint(minute=X, value=Y, period_id=Z)' back to TrendPoint."""
+        m = _re.match(r"TrendPoint\(minute=(\d+),\s*value=([\d.]+),\s*period_id=(\d+)\)", s)
+        if m:
+            return TrendPoint(minute=int(m.group(1)), value=float(m.group(2)), period_id=int(m.group(3)))
+        return None
+
+    def _deserialize(obj):
+        if isinstance(obj, list):
+            result = []
+            for item in obj:
+                if isinstance(item, str):
+                    tp = _parse_trendpoint_str(item)
+                    result.append(tp if tp else item)
+                else:
+                    result.append(_deserialize(item))
+            return result
+        if isinstance(obj, dict):
+            tname = obj.get("_type")
+            if tname and tname in _TYPE_MAP:
+                cls = _TYPE_MAP[tname]
+                field_types = {f.name: f.type for f in dc.fields(cls)}
+                kwargs = {}
+                for k, v in obj.items():
+                    if k == "_type":
+                        continue
+                    if isinstance(v, list):
+                        kwargs[k] = [_deserialize(item) for item in v]
+                    elif isinstance(v, dict) and v.get("_type"):
+                        kwargs[k] = _deserialize(v)
+                    elif isinstance(v, dict):
+                        kwargs[k] = _deserialize(v)  # plain dict: trends, stats, etc.
+                    elif k in field_types:
+                        kwargs[k] = v
+                    else:
+                        kwargs[k] = v
+                # Handle Optional types
+                for f in dc.fields(cls):
+                    if f.name not in kwargs and f.default is not dc.MISSING:
+                        kwargs[f.name] = f.default
+                    elif f.name not in kwargs and f.default_factory is not dc.MISSING:
+                        kwargs[f.name] = f.default_factory()
+                return cls(**kwargs)
+            # Regular dict (e.g., home_stats, trends)
+            result = {}
+            for k, v in obj.items():
+                if k == "_type":
+                    continue
+                result[k] = _deserialize(v)
+            return result
+        return obj
+
+    return _deserialize(d)
