@@ -213,6 +213,10 @@ class RawMatchData:
     home_lineup: Optional[LineupInfo] = None
     away_lineup: Optional[LineupInfo] = None
     trends: dict = field(default_factory=dict)
+    timeline: list[dict] = field(default_factory=list)
+    formations: list[dict] = field(default_factory=list)
+    stage_info: Optional[dict] = None
+    venue_info: Optional[dict] = None
 
 
 # ============================================================
@@ -243,8 +247,9 @@ class SportMonksClient:
     def get_fixture_with_details(self, match_id: int) -> dict:
         includes = (
             "statistics;periods.statistics;periods.events;"
-            "trends;lineups.details;events;"
-            "participants;scores;coaches;referees"
+            "trends;timeline;lineups.details;events;"
+            "participants;scores;coaches;referees;"
+            "formations;stage;venue"
         )
         return self._get(f"/fixtures/{match_id}", {"include": includes})
 
@@ -623,6 +628,11 @@ def fetch_all(match_id: int, config: dict) -> RawMatchData:
         home_players=home_players, away_players=away_players,
         events=events, periods=periods,
         trends=trends,
+        timeline=data.get("timeline", []),
+        formations=[{"participant_id": f.get("participant_id"), "formation": f.get("formation"), "location": f.get("location")}
+                    for f in data.get("formations", [])],
+        stage_info=data.get("stage") if isinstance(data.get("stage"), dict) else None,
+        venue_info=data.get("venue") if isinstance(data.get("venue"), dict) else None,
     )
 
     _save_raw_data(raw)

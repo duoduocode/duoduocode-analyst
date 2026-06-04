@@ -397,3 +397,169 @@ def build_narrative(
     }
 
     return prompt_loader.render("narrative", **args)
+
+
+def build_narrative_v3(
+    raw: RawMatchData,
+    computed: ComputedData,
+    signals: list[SignalResult],
+    hard_facts,
+    sub_impacts: list[dict],
+    trend_analysis: TrendAnalysis = None,
+    prompt_loader: PromptLoader = None,
+) -> tuple[str, str]:
+    """Build prompt for v3 six-section narrative using narrative_v3.yaml template."""
+    if prompt_loader is None:
+        prompt_loader = PromptLoader("prompts")
+
+    hs = raw.home_stats
+    aws = raw.away_stats
+
+    # Stage/venue info
+    stage = raw.stage_info or {}
+    venue = raw.venue_info or {}
+    league_name = stage.get("name", "")
+    venue_name = venue.get("name", "未知球场")
+    city = venue.get("city_name", "")
+    stage_text = f"，{stage.get('name', '')}" if league_name else ""
+
+    # Formations
+    formations = raw.formations or []
+    home_formation = "?"
+    away_formation = "?"
+    for f in formations:
+        if f.get("location") == "home":
+            home_formation = f.get("formation", "?")
+        else:
+            away_formation = f.get("formation", "?")
+
+    # Match duration
+    if raw.score.extratime_home is not None:
+        match_duration = "120分钟+点球大战"
+    elif raw.score.halftime_home is not None:
+        match_duration = "90分钟"
+    else:
+        match_duration = "全场"
+
+    # Hard facts text
+    hf_lines = []
+    hf_lines.append(f"控球有效率：{raw.home_team.name} {hard_facts.possession_xg_ratio_home} xG/1%控球 vs {raw.away_team.name} {hard_facts.possession_xg_ratio_away}")
+    xg_dev = hard_facts.xg_deviation_home
+    if abs(xg_dev) > 0.3:
+        hf_lines.append(f"xG背离：{raw.home_team.name} 实际进球比 xG {'多' if xg_dev > 0 else '少'}{abs(xg_dev):.2f}")
+    xg_dev_a = hard_facts.xg_deviation_away
+    if abs(xg_dev_a) > 0.3:
+        hf_lines.append(f"xG背离：{raw.away_team.name} 实际进球比 xG {'多' if xg_dev_a > 0 else '少'}{abs(xg_dev_a):.2f}")
+    if hard_facts.attack_rhythm:
+        r = hard_facts.attack_rhythm
+        if r.get("home_shots_ratio", 1) > 1.5:
+            hf_lines.append(f"射门节奏：{raw.home_team.name} 下半场射门 {int(r.get('home_shots_h2', 0))}（上半场 {int(r.get('home_shots_h1', 0))}），增长 {r['home_shots_ratio']}x")
+        if r.get("away_shots_ratio", 1) > 1.5:
+            hf_lines.append(f"射门节奏：{raw.away_team.name} 下半场射门 {int(r.get('away_shots_h2', 0))}（上半场 {int(r.get('away_shots_h1', 0))}），增长 {r['away_shots_ratio']}x")
+    if hard_facts.passing_profile:
+        pp = hard_facts.passing_profile
+        hf_lines.append(f"传球风格：{raw.home_team.name} 长传占比 {pp.get('home_long_ball_pct', 0)}%、传中占比 {pp.get('home_cross_pct', 0)}%  |  {raw.away_team.name} 长传占比 {pp.get('away_long_ball_pct', 0)}%、传中占比 {pp.get('away_cross_pct', 0)}%")
+    if hard_facts.defensive_decay.get("windows"):
+        dd = hard_facts.defensive_decay
+        hf_lines.append(f"防守强度衰减：{raw.home_team.name} {dd.get('home_decay_pct', '?')}%  |  {raw.away_team.name} {dd.get('away_decay_pct', '?')}%")
+    if hard_facts.time_pressure.get("leading_team"):
+        hf_lines.append(f"末段压力：领先方 {hard_facts.time_pressure['leading_team']}，末段射门比 {hard_facts.time_pressure.get('late_shots_home', 0)}:{hard_facts.time_pressure.get('late_shots_away', 0)}")
+    hard_facts_text = "\n".join(hf_lines)
+
+    # Event timeline text
+    event_lines = []
+    for e in raw.events:
+        mi = e.time_elapsed or "?"
+        x = f"+{e.time_extra}" if e.time_extra else ""
+        icon = {"Goal": "⚽", "Card": "🟨", "subst": "🔄", "VAR": "📺", "Info": "ℹ️"}.get(e.event_type, e.event_type)
+        if e.event_type == "Goal" and "penalty" in str(e.detail):
+            icon = "⚽(P)"
+        event_lines.append(f"{mi}'{x} {icon} {e.player_name or '-'} [{e.detail or ''}]")
+    event_timeline_text = "\n".join(event_lines[:50])
+
+    # Sub impacts text
+    si_lines = []
+    for si in sub_impacts:
+        si_lines.append(
+            f"{si['minute_display']} {si['team']}: {si['player_on']} ↑ / {si['player_off']} ↓ | "
+            f"意图: {si['intent']} | "
+            f"控球变化: {si.get('control_before', '?')}→{si.get('control_after', '?')} | "
+            f"射门变化: {si.get('shots_before', '?')}→{si.get('shots_after', '?')} | "
+            f"效果: {si.get('effectiveness', '?')}"
+        )
+    sub_impacts_text = "\n".join(si_lines) if si_lines else "无换人数据"
+
+    # Signals text
+    sig_lines = []
+    for s in signals[:6]:
+        sig_lines.append(f"[{CATEGORY_CN.get(s.category, s.category)}] {s.name}: {s.narrative_hint[:120]}")
+    signals_text = "\n".join(sig_lines)
+
+    # Period stats
+    per_lines = []
+    for p in (raw.periods or []):
+        desc = p.description
+        hs_p = p.home_stats
+        as_p = p.away_stats
+        if not hs_p:
+            continue
+        per_lines.append(
+            f"{desc}: {raw.home_team.name} 射门 {int(_stat(hs_p, 'Total Shots'))}（控球 {int(_stat(hs_p, 'Ball Possession'))}%）| "
+            f"{raw.away_team.name} 射门 {int(_stat(as_p, 'Total Shots', default=0))}（控球 {int(_stat(as_p, 'Ball Possession', default=0))}%）"
+        )
+    period_stats_text = "\n".join(per_lines)
+
+    # Player stats
+    pl_lines = []
+    for team_label, players in [("主队", raw.home_players), ("客队", raw.away_players)]:
+        pl_lines.append(f"\n{team_label}:")
+        for p in sorted(players, key=lambda x: x.rating or 0, reverse=True)[:8]:
+            xg_val = f"xG={p.xg:.2f}" if p.xg else ""
+            pl_lines.append(
+                f"  {p.name} #{p.number} {p.position} "
+                f"评分:{p.rating or '-'} min {p.minutes_played}' "
+                f"射{p.shots_total}/{p.shots_on} 传{p.passes_total} {xg_val}"
+            )
+    player_stats_text = "\n".join(pl_lines)
+
+    args = {
+        "league": league_name,
+        "stage_text": stage_text,
+        "venue_name": venue_name,
+        "city": city,
+        "home_name": raw.home_team.name,
+        "away_name": raw.away_team.name,
+        "home_goals": raw.score.home,
+        "away_goals": raw.score.away,
+        "ht_home": raw.score.halftime_home,
+        "ht_away": raw.score.halftime_away,
+        "pen_home": raw.score.penalty_home or 0,
+        "pen_away": raw.score.penalty_away or 0,
+        "home_formation": home_formation,
+        "away_formation": away_formation,
+        "match_duration": match_duration,
+        "home_possession": int(float(_stat(hs, "Ball Possession", default=50))),
+        "away_possession": int(float(_stat(aws, "Ball Possession", default=50))),
+        "home_shots": int(float(_stat(hs, "Total Shots", default=0))),
+        "away_shots": int(float(_stat(aws, "Total Shots", default=0))),
+        "home_sot": int(float(_stat(hs, "Shots on Goal", default=0))),
+        "away_sot": int(float(_stat(aws, "Shots on Goal", default=0))),
+        "home_xg": round(sum(p.xg for p in raw.home_players if p.xg), 2),
+        "away_xg": round(sum(p.xg for p in raw.away_players if p.xg), 2),
+        "home_passes": int(float(_stat(hs, "Total passes", default=0))),
+        "away_passes": int(float(_stat(aws, "Total passes", default=0))),
+        "home_pass_pct": int(float(_stat(hs, "Passes %", default=75))),
+        "away_pass_pct": int(float(_stat(aws, "Passes %", default=75))),
+        "home_corners": int(float(_stat(hs, "Corner Kicks", default=0))),
+        "away_corners": int(float(_stat(aws, "Corner Kicks", default=0))),
+        "home_yellows": int(float(_stat(hs, "Yellow Cards", default=0))),
+        "away_yellows": int(float(_stat(aws, "Yellow Cards", default=0))),
+        "hard_facts_text": hard_facts_text,
+        "event_timeline_text": event_timeline_text,
+        "sub_impacts_text": sub_impacts_text,
+        "signals_text": signals_text,
+        "period_stats_text": period_stats_text,
+        "player_stats_text": player_stats_text,
+    }
+
+    return prompt_loader.render("narrative_v3", **args)

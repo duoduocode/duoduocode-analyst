@@ -449,3 +449,343 @@ h3 {{ margin-top: 24px; }}
         pass
 
     return report_path
+
+
+def _event_timeline_sided_html(
+    events: list, home_name: str, away_name: str, home_id: int, away_id: int
+) -> str:
+    """Timeline with center line, home events on the left, away on the right."""
+    key_events = [
+        e for e in events
+        if e.event_type in ("Goal", "Card", "subst")
+        and e.detail not in ("pen_shootout_goal", "pen_shootout_miss")
+    ]
+    if not key_events:
+        return ""
+
+    key_events.sort(key=lambda e: (e.period_id or 0, e.time_elapsed or 0))
+
+    html = '<div class="tl">\n'
+    # center line is drawn by CSS ::before on .tl
+
+    for ev in key_events:
+        mi = ev.time_elapsed or "?"
+        team_name = ev.team_name or ""
+        is_home = ev.team_id == home_id
+        side_class = "tl-left" if is_home else "tl-right"
+
+        icon_map = {"Goal": "⚽", "Card": "🟨", "subst": "🔄", "VAR": "📺"}
+        icon = icon_map.get(ev.event_type, "📌")
+
+        desc = ev.player_name or ""
+        if ev.event_type == "Goal":
+            if ev.assist_name:
+                desc += f'&nbsp;<small>(A: {ev.assist_name})</small>'
+            if ev.detail == "goal_penalty":
+                desc += '&nbsp;<small>[P]</small>'
+            elif ev.detail == "missed_penalty":
+                desc += '&nbsp;<small>[罚失]</small>'
+        elif ev.event_type == "subst":
+            player_in = ev.assist_name or "?"
+            player_out = ev.player_name or "?"
+            desc = f'{player_in} ↑<br/><small>↓ {player_out}</small>'
+        elif ev.event_type == "Card":
+            color = {"yellowcard": "#f0c040", "redcard": "#e04040",
+                     "yellowredcard": "#e04040"}.get(ev.detail, "#f0c040")
+            icon = f'<span style="color:{color}">■</span>'
+
+        card_color = "#2ecc71" if is_home else "#3498db"
+        border_side = "left" if not is_home else "right"
+
+        html += f'  <div class="{side_class} tl-item">\n'
+        html += f'    <div class="tl-icon">{icon}</div>\n'
+        html += f'    <div class="tl-content" style="border-{border_side}:3px solid {card_color}">\n'
+        html += f'      <span class="tl-time">{mi}\'</span>&nbsp;{desc}\n'
+        html += f'      <div class="tl-team">{team_name}</div>\n'
+        html += f'    </div>\n'
+        html += f'  </div>\n'
+
+    html += '</div>'
+    return html
+
+
+def build_report_v3_html(
+    raw: RawMatchData,
+    narrative_text: str,
+    image_paths: dict,
+    output_dir: str,
+    hard_facts=None,
+    sub_impacts: list[dict] = None,
+    signals: list[SignalResult] = None,
+    computed = None,
+) -> str:
+    """v3 HTML report: direct HTML generation with rich styling and visuals."""
+
+    hs = raw.home_stats
+    aws = raw.away_stats
+    home_logo_url = raw.home_team.logo_url
+    away_logo_url = raw.away_team.logo_url
+    home_name = raw.home_team.name
+    away_name = raw.away_team.name
+
+    sections = _parse_narrative_sections(narrative_text)
+
+    home_xg = round(sum(p.xg for p in raw.home_players), 2)
+    away_xg = round(sum(p.xg for p in raw.away_players), 2)
+
+    stage = raw.stage_info or {}
+    venue = raw.venue_info or {}
+    league_name = stage.get("name", "")
+    venue_name = venue.get("name", "未知球场")
+    city_name = venue.get("city_name", "")
+    venue_img = venue.get("image_path", "") if isinstance(venue, dict) else ""
+
+    # ── HTML build ──
+    H = []  # HTML lines
+    H.append('<!DOCTYPE html>')
+    H.append('<html lang="zh-CN"><head><meta charset="utf-8">')
+    H.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+    H.append(f'<title>{home_name} vs {away_name} — 比赛报告</title>')
+    H.append('<style>')
+    H.append('*{margin:0;padding:0;box-sizing:border-box}')
+    H.append('body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:#0f1923;color:#d0d8e0;line-height:1.8}')
+    H.append('.container{max-width:960px;margin:0 auto;padding:20px}')
+    H.append('img{max-width:100%;border-radius:4px}')
+    H.append('h1{color:#fff;font-size:24px;text-align:center;margin:10px 0}')
+    H.append('h2{color:#e0e8f0;font-size:20px;border-bottom:2px solid #2ecc71;padding-bottom:8px;margin:32px 0 16px}')
+    H.append('h3{color:#c0d0e0;font-size:16px;margin:20px 0 8px}')
+    H.append('.scoreboard{text-align:center;margin:20px 0}')
+    H.append('.scoreboard .teams{font-size:22px;color:#fff}')
+    H.append('.scoreboard .teams img{width:48px;height:48px;border-radius:50%;vertical-align:middle;margin:0 12px}')
+    H.append('.scoreboard .score{font-size:40px;font-weight:bold;color:#2ecc71;margin:0 16px}')
+    H.append('.meta{text-align:center;color:#8ab4d6;font-size:14px;margin:8px 0}')
+    H.append('.meta img{margin:12px 0;max-height:200px;object-fit:cover}')
+    H.append('.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0}')
+    H.append('.stat-row{display:flex;justify-content:space-between;align-items:center;padding:6px 12px;background:#162a38;border-radius:6px}')
+    H.append('.stat-label{color:#6b8fa3;font-size:13px}')
+    H.append('.stat-vals{font-size:14px;font-weight:bold}')
+    H.append('.stat-home{color:#2ecc71}')
+    H.append('.stat-away{color:#3498db}')
+    H.append('.insight-box{background:#162a38;border-left:4px solid #2ecc71;padding:12px 16px;margin:16px 0;border-radius:0 8px 8px 0}')
+    H.append('.insight-box li{color:#bcd4e6;font-size:14px;margin:4px 0}')
+    H.append('.tl{position:relative;padding:10px 0}')
+    H.append('.tl:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:#3a5068}')
+    H.append('.tl-item{position:relative;display:flex;align-items:flex-start;margin:12px 0}')
+    H.append('.tl-left{flex-direction:row;padding-right:calc(50% + 20px)}')
+    H.append('.tl-right{flex-direction:row-reverse;padding-left:calc(50% + 20px)}')
+    H.append('.tl-icon{font-size:20px;min-width:36px;text-align:center}')
+    H.append('.tl-content{background:#162a38;border-radius:8px;padding:8px 12px;font-size:13px;max-width:90%}')
+    H.append('.tl-time{color:#2ecc71;font-weight:bold;font-size:12px}')
+    H.append('.tl-team{font-size:11px;color:#6b8fa3;margin-top:2px}')
+    H.append('.tl-home .tl-content{border-right:3px solid #2ecc71}')  # fixed: use border-right on item container
+    H.append('.tl-away .tl-content{border-left:3px solid #3498db}')
+    H.append('table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}')
+    H.append('td,th{padding:8px 10px;text-align:center;border-bottom:1px solid #1e3a4d}')
+    H.append('th{background:#1e3a4d;color:#8ab4d6;font-weight:bold;font-size:12px}')
+    H.append('tr:nth-child(even){background:#12222e}')
+    H.append('.player-photo{border-radius:50%;width:28px;height:28px;vertical-align:middle;margin-right:4px}')
+    H.append('.kings{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:16px 0}')
+    H.append('.kings h4{color:#8ab4d6;margin:8px 0 4px;text-align:center}')
+    H.append('.footer{text-align:center;color:#4a6a80;font-size:12px;margin:30px 0 10px;border-top:1px solid #1e3a4d;padding-top:16px}')
+    H.append('@media(max-width:700px){.kings{grid-template-columns:1fr}}')
+    H.append('</style></head><body><div class="container">')
+
+    # ── Header / Scoreboard ──
+    H.append(f'<h1>{league_name}</h1>' if league_name else '')
+    H.append('<div class="scoreboard">')
+    H.append(f'<span class="teams"><img src="{home_logo_url}" alt="">{home_name}</span>')
+    H.append(f'<span class="score">{raw.score.home} - {raw.score.away}</span>')
+    H.append(f'<span class="teams">{away_name}<img src="{away_logo_url}" alt=""></span>')
+    H.append('</div>')
+    H.append(f'<div class="meta">📍 {venue_name}，{city_name}</div>')
+
+    # Venue photo
+    if venue_img:
+        H.append(f'<div class="meta"><img src="{venue_img}" alt="球场"></div>')
+
+    # Score details
+    score_line = f'⏱️ 半场 {raw.score.halftime_home}-{raw.score.halftime_away}'
+    if raw.score.extratime_home is not None:
+        score_line += f' | 加时 {raw.score.extratime_home}-{raw.score.extratime_away}'
+    if raw.score.penalty_home is not None:
+        score_line += f' | 点球 {raw.score.penalty_home}-{raw.score.penalty_away}'
+    H.append(f'<div class="meta">{score_line}</div>')
+
+    # ── Section 1: 封面导语 ──
+    cover = sections.get("封面导语", "")
+    if cover:
+        H.append(f'<div class="insight-box" style="border-left-color:#3498db;font-size:15px;"><p>{cover}</p></div>')
+
+    # Lineup image
+    if image_paths.get("lineup"):
+        H.append(f'<p style="text-align:center"><img src="{image_paths["lineup"]}" alt="首发阵容"></p>')
+
+    # ── 核心数据面板 ──
+    H.append('<h2>核心数据面板</h2>')
+    stats_pairs = [
+        ("控球率", f'{int(float(_stat(hs,"Ball Possession",default=50)))}%', f'{int(float(_stat(aws,"Ball Possession",default=50)))}%'),
+        ("预期进球 xG", str(home_xg), str(away_xg)),
+        ("射门 / 射正", f'{int(float(_stat(hs,"Total Shots")))}/{int(float(_stat(hs,"Shots on Goal")))}', f'{int(float(_stat(aws,"Total Shots")))}/{int(float(_stat(aws,"Shots on Goal")))}'),
+        ("绝佳机会", str(int(float(_stat(hs,"Big Chances Created")))), str(int(float(_stat(aws,"Big Chances Created"))))),
+        ("禁区内射门", str(int(float(_stat(hs,"Shots insidebox")))), str(int(float(_stat(aws,"Shots insidebox"))))),
+        ("传球成功率", f'{int(float(_stat(hs,"Passes %",default=75)))}%', f'{int(float(_stat(aws,"Passes %",default=75)))}%'),
+        ("角球", str(int(float(_stat(hs,"Corner Kicks")))), str(int(float(_stat(aws,"Corner Kicks"))))),
+        ("抢断/犯规/黄牌", f'{int(float(_stat(hs,"Tackles")))}/{int(float(_stat(hs,"Fouls")))}/{int(float(_stat(hs,"Yellow Cards")))}', f'{int(float(_stat(aws,"Tackles")))}/{int(float(_stat(aws,"Fouls")))}/{int(float(_stat(aws,"Yellow Cards")))}'),
+    ]
+    H.append('<div class="stat-grid">')
+    for label, hv, av in stats_pairs:
+        H.append(f'<div class="stat-row"><span class="stat-label">{label}</span><span class="stat-vals"><span class="stat-home">{hv}</span> &nbsp; <span class="stat-away">{av}</span></span></div>')
+    H.append('</div>')
+
+    # ── 数据洞察摘要 (enriched) ──
+    if hard_facts:
+        H.append('<div class="insight-box"><h3 style="color:#2ecc71;margin-bottom:8px">📊 数据洞察摘要</h3><ul>')
+        hf = hard_facts
+        if hf.possession_xg_ratio_home:
+            H.append(f'<li><b>控球有效性</b>：{home_name} 每1%控球产出 <span class="stat-home">{hf.possession_xg_ratio_home:.3f}</span> xG，{away_name} <span class="stat-away">{hf.possession_xg_ratio_away:.3f}</span> xG。{"主队控球更有实质性威胁" if hf.possession_xg_ratio_home > hf.possession_xg_ratio_away else "客队控球效率更高"}</li>')
+        if hf.xg_overperformer:
+            H.append(f'<li><b>xG背离</b>：{hf.xg_overperformer} 实际进球超预期（{home_name} {hf.xg_deviation_home:+.2f}，{away_name} {hf.xg_deviation_away:+.2f}）</li>')
+        r = hf.attack_rhythm
+        if r and r.get("home_shots_ratio", 0) > 1.5:
+            H.append(f'<li><b>射门节奏飙升</b>：{home_name} 上下半场射门 {int(r.get("home_shots_h1",0))}→{int(r.get("home_shots_h2",0))}，增长 <b>{r["home_shots_ratio"]}x</b></li>')
+        if r and r.get("away_shots_ratio", 0) > 1.5:
+            H.append(f'<li><b>射门节奏飙升</b>：{away_name} 上下半场射门 {int(r.get("away_shots_h1",0))}→{int(r.get("away_shots_h2",0))}，增长 <b>{r["away_shots_ratio"]}x</b></li>')
+        if hf.passing_profile:
+            pp = hf.passing_profile
+            H.append(f'<li><b>传球风格</b>：{home_name} 长传占比 {pp.get("home_long_ball_pct",0)}%、传中 {pp.get("home_cross_pct",0)}% | {away_name} 长传 {pp.get("away_long_ball_pct",0)}%、传中 {pp.get("away_cross_pct",0)}%</li>')
+        if hf.defensive_decay.get("home_decay_pct"):
+            dd = hf.defensive_decay
+            H.append(f'<li><b>防守衰减</b>：{home_name} {dd.get("home_decay_pct","?")}% | {away_name} {dd.get("away_decay_pct","?")}%</li>')
+        if hf.player_efficiency:
+            pe = hf.player_efficiency
+            if pe.get("top_xg90"):
+                top = pe["top_xg90"][0]
+                H.append(f'<li><b>xG之王</b>：{top["name"]} 每90分钟xG {top["xg_per_90"]}，全场最高</li>')
+        H.append('</ul></div>')
+
+    # Efficiency comparison chart
+    if image_paths.get("efficiency"):
+        H.append(f'<p style="text-align:center"><img src="{image_paths["efficiency"]}" alt="效率对比"></p>')
+
+    # ── Section 2: 比赛节奏 ──
+    rhythm = sections.get("比赛节奏", "")
+    if rhythm:
+        H.append('<h2>📈 比赛节奏</h2>')
+        H.append(f'<p>{rhythm}</p>')
+        if image_paths.get("momentum"):
+            H.append(f'<p style="text-align:center"><img src="{image_paths["momentum"]}" alt="趋势走势"></p>')
+
+    # ── Section 3: 效率悖论 ──
+    efficiency = sections.get("效率悖论", "")
+    if efficiency:
+        H.append('<h2>⚡ 效率悖论</h2>')
+        H.append(f'<p>{efficiency}</p>')
+        if image_paths.get("xg_hist"):
+            H.append(f'<p style="text-align:center"><img src="{image_paths["xg_hist"]}" alt="xG模拟"></p>')
+
+    # ── Section 4: 战术解码 ──
+    tactics = sections.get("战术解码", "")
+    if tactics:
+        H.append('<h2>🧩 战术解码</h2>')
+        H.append(f'<p>{tactics}</p>')
+        if image_paths.get("pass_home"):
+            H.append(f'<p style="text-align:center"><img src="{image_paths["pass_home"]}" alt="传球网络-主队"></p>')
+        if image_paths.get("pass_away"):
+            H.append(f'<p style="text-align:center"><img src="{image_paths["pass_away"]}" alt="传球网络-客队"></p>')
+
+    # ── Section 5: 人物志 + 进攻/防守/均衡之王 ──
+    characters = sections.get("人物志", "")
+    if characters:
+        H.append('<h2>🎭 人物志</h2>')
+        H.append(f'<p>{characters}</p>')
+
+    # Kings table (replaces radar)
+    H.append('<h3>进攻/防守/均衡之王 Top 3</h3>')
+    king_data = _compute_king_scores(raw)
+
+    categories = [
+        ("攻击之王", "attack", "进攻分"),
+        ("防守之王", "defense", "防守分"),
+        ("均衡之王", "balanced", "均衡分"),
+    ]
+    for cat_label, key, col_label in categories:
+        H.append(f'<h4 style="color:#2ecc71;text-align:center;margin-top:12px">{cat_label}</h4>')
+        H.append('<div class="kings">')
+        for team_name in [home_name, away_name]:
+            td = king_data.get(team_name, {})
+            outfield = [p for p in td.get("players", []) if p["pos"] != "G"]
+            top3 = sorted(outfield, key=lambda x: x[key], reverse=True)[:3]
+            if not top3:
+                continue
+            H.append(f'<div><h4 style="color:{"#2ecc71" if team_name == home_name else "#3498db"}">{team_name}</h4>')
+            if key == "balanced":
+                H.append('<table><tr><th>#</th><th>球员</th><th>位</th><th>评分</th><th>出场</th><th>进攻分</th><th>防守分</th><th>均衡分</th></tr>')
+                for i, p in enumerate(top3, 1):
+                    H.append(f'<tr><td>{i}</td><td>{p["name"]}</td><td>{p["pos"]}</td><td>{p["rating"]}</td><td>{p["mins"]}\'</td><td>{p["attack"]:.1f}</td><td>{p["defense"]:.1f}</td><td style="color:#2ecc71;font-weight:bold">{p["balanced"]:.1f}</td></tr>')
+            else:
+                H.append(f'<table><tr><th>#</th><th>球员</th><th>位</th><th>评分</th><th>出场</th><th>{col_label}</th></tr>')
+                for i, p in enumerate(top3, 1):
+                    H.append(f'<tr><td>{i}</td><td>{p["name"]}</td><td>{p["pos"]}</td><td>{p["rating"]}</td><td>{p["mins"]}\'</td><td style="color:#2ecc71;font-weight:bold">{p[key]:.1f}</td></tr>')
+            H.append('</table></div>')
+        H.append('</div>')
+
+    # Sub impacts chart
+    if image_paths.get("subs"):
+        H.append(f'<p style="text-align:center"><img src="{image_paths["subs"]}" alt="换人效果"></p>')
+
+    # ── Section 6: 数据深潜 ──
+    deep_dive = sections.get("数据深潜", "")
+    if deep_dive:
+        H.append('<h2>🔬 数据深潜</h2>')
+        H.append(f'<p>{deep_dive}</p>')
+
+    # Player ratings table
+    H.append('<h3>球员评分全表</h3>')
+    for players, team_name, logo in [(raw.home_players, home_name, home_logo_url), (raw.away_players, away_name, away_logo_url)]:
+        H.append(f'<h4><img src="{logo}" style="width:24px;height:24px;vertical-align:middle;border-radius:50%;margin-right:6px">{team_name}</h4>')
+        H.append('<table><tr><th></th><th>球员</th><th>位</th><th>评分</th><th>分钟</th><th>进球</th><th>助攻</th><th>射正</th><th>关键传</th><th>抢断</th><th>过人</th><th>传球%</th></tr>')
+        sorted_pl = sorted(players, key=lambda p: p.minutes_played, reverse=True)
+        for p in sorted_pl:
+            if p.minutes_played <= 0:
+                continue
+            photo = f'<img src="{p.photo_url}" class="player-photo">' if p.photo_url else ""
+            rating = f'{p.rating:.1f}' if p.rating is not None else "-"
+            pass_acc = f'{p.passes_accuracy:.0f}' if p.passes_accuracy else "-"
+            H.append(f'<tr><td>{photo}</td><td>{p.name}</td><td>{p.position}</td><td>{rating}</td><td>{p.minutes_played}</td><td>{p.goals}</td><td>{p.assists}</td><td>{p.shots_on}</td><td>{p.passes_key}</td><td>{p.tackles_total}</td><td>{p.dribbles_success}</td><td>{pass_acc}</td></tr>')
+        H.append('</table>')
+
+    # ── Key events timeline (vertical center line, home left, away right) ──
+    H.append('<h2>📋 关键事件时间线</h2>')
+    H.append(_event_timeline_sided_html(raw.events, home_name, away_name, raw.home_team.id, raw.away_team.id))
+
+    # Footer
+    H.append('<div class="footer">报告由 AI 足球分析员 v3 自动生成 | 数据来源：SportMonks API</div>')
+
+    H.append('</div></body></html>')
+
+    html_content = "\n".join(H)
+
+    # ── Write files ──
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    html_path = out_dir / "report_v3.html"
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    # Also save MD for reference
+    md_path = out_dir / "report_v3.md"
+    _save_md_report(out_dir / "report_v3.md", sections, image_paths, raw, home_name, away_name, home_xg, away_xg, hs, aws, hard_facts)
+
+    return str(html_path)
+
+
+def _save_md_report(md_path, sections, image_paths, raw, home_name, away_name, home_xg, away_xg, hs, aws, hard_facts):
+    """Save a simple Markdown version for reference."""
+    md = f"# {home_name} {raw.score.home} - {raw.score.away} {away_name}\n\n"
+    for sec in ["封面导语", "比赛节奏", "效率悖论", "战术解码", "人物志", "数据深潜"]:
+        content = sections.get(sec, "")
+        if content:
+            md += f"## {sec}\n\n{content}\n\n"
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(md)

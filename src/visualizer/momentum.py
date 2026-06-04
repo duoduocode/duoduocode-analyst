@@ -1,90 +1,136 @@
+"""
+Momentum curve v3: plot actual possession + attacks trends over time
+with key events annotated.
+"""
+
 from __future__ import annotations
 
 import matplotlib
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
 
-from src.visualizer import AWAY_COLOR, HOME_COLOR
+from src.collector.api_client import RawMatchData, TrendPoint
+from src.visualizer import HOME_COLOR, AWAY_COLOR
 
 
-def plot_momentum_curve(
-    segments: list[dict],
-    key_events: list[dict],
-    home_name: str,
-    away_name: str,
+def plot_momentum_curve_v3(
+    raw: RawMatchData,
     output_path: str,
     dpi: int = 150,
 ) -> str:
-    fig, ax = plt.subplots(figsize=(12, 5))
+    """Plot possession% and attacking trends from actual trends data."""
 
-    times = [7.5, 22.5, 37.5, 52.5, 67.5, 82.5]
-    home_vals = [s["home"] for s in segments]
-    away_vals = [s["away"] for s in segments]
+    trends = raw.trends or {}
+    home_id = raw.home_team.id
+    away_id = raw.away_team.id
+    home_name = raw.home_team.name
+    away_name = raw.away_team.name
 
-    home_vals = np.array(home_vals, dtype=float)
-    away_vals = np.array(away_vals, dtype=float)
+    # Extract possession trends
+    home_poss = _get_trend_series(trends, home_id, 45)  # possession type_id=45
+    away_poss = _get_trend_series(trends, away_id, 45)
 
-    ax.fill_between(
-        times,
-        home_vals,
-        0,
-        alpha=0.3,
-        color=HOME_COLOR,
-        label=f"{home_name} 动量",
-    )
-    ax.plot(times, home_vals, color=HOME_COLOR, linewidth=2, marker="o", markersize=6)
+    # Extract attack trends
+    home_att = _get_trend_series(trends, home_id, 43)  # attacks type_id=43
+    away_att = _get_trend_series(trends, away_id, 43)
 
-    ax.fill_between(
-        times,
-        away_vals * -1,
-        0,
-        alpha=0.3,
-        color=AWAY_COLOR,
-        label=f"{away_name} 动量",
-    )
-    ax.plot(times, away_vals * -1, color=AWAY_COLOR, linewidth=2, marker="s", markersize=6)
+    # Extract shots trends
+    home_shots = _get_trend_series(trends, home_id, 42)
+    away_shots = _get_trend_series(trends, away_id, 42)
 
-    y_max = max(max(home_vals), max(away_vals)) * 1.4
-    y_max = max(y_max, 1)
+    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+    fig.patch.set_facecolor("#1a1a2e")
 
-    for ev in key_events:
-        minute = ev.get("minute", 0)
-        ev_type = ev.get("type", "")
-        label = ev.get("label", "")
-        team = ev.get("team", "")
+    colors = [HOME_COLOR, AWAY_COLOR]
 
-        y_pos = y_max * 0.9 if team == home_name else -y_max * 0.9
+    # ---- Panel 1: Possession % ----
+    ax = axes[0]
+    ax.set_facecolor("#1a1a2e")
+    if home_poss:
+        xs, ys = zip(*home_poss)
+        ax.fill_between(xs, ys, alpha=0.2, color=colors[0])
+        ax.plot(xs, ys, color=colors[0], linewidth=1.5)
+    if away_poss:
+        xs, ys = zip(*away_poss)
+        ax.fill_between(xs, ys, alpha=0.2, color=colors[1])
+        ax.plot(xs, ys, color=colors[1], linewidth=1.5)
+    ax.set_ylabel("控球率 %", color="white")
+    ax.set_title(f"控球率走势 ({home_name} {colors[0]}) | {away_name} {colors[1]})", 
+                 color="white", fontweight="bold", fontsize=11)
+    ax.tick_params(colors="white")
+    ax.grid(True, alpha=0.15, color="white")
+    for spine in ax.spines.values():
+        spine.set_color("#333")
+    ax.set_ylim(0, 100)
 
-        marker = "▼" if ev_type == "Goal" else ("◆" if ev_type == "Card" else "○")
-        color = HOME_COLOR if team == home_name else AWAY_COLOR
+    # ---- Panel 2: Cumulative Attacks ----
+    ax = axes[1]
+    ax.set_facecolor("#1a1a2e")
+    if home_att:
+        xs, ys = zip(*home_att)
+        ax.plot(xs, ys, color=colors[0], linewidth=1.5)
+    if away_att:
+        xs, ys = zip(*away_att)
+        ax.plot(xs, ys, color=colors[1], linewidth=1.5)
+    ax.set_ylabel("累计进攻", color="white")
+    ax.set_title("进攻次数累计", color="white", fontweight="bold", fontsize=11)
+    ax.tick_params(colors="white")
+    ax.grid(True, alpha=0.15, color="white")
+    for spine in ax.spines.values():
+        spine.set_color("#333")
 
-        ax.annotate(
-            f"{marker} {label}",
-            (minute, y_pos),
-            fontsize=7,
-            color=color,
-            fontweight="bold",
-            ha="center",
-            va="center",
-            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8, edgecolor=color),
-        )
+    # ---- Panel 3: Cumulative Shots ----
+    ax = axes[2]
+    ax.set_facecolor("#1a1a2e")
+    if home_shots:
+        xs, ys = zip(*home_shots)
+        ax.plot(xs, ys, color=colors[0], linewidth=1.5)
+    if away_shots:
+        xs, ys = zip(*away_shots)
+        ax.plot(xs, ys, color=colors[1], linewidth=1.5)
+    ax.set_xlabel("比赛分钟", color="white")
+    ax.set_ylabel("累计射门", color="white")
+    ax.set_title("射门次数累计", color="white", fontweight="bold", fontsize=11)
+    ax.tick_params(colors="white")
+    ax.grid(True, alpha=0.15, color="white")
+    for spine in ax.spines.values():
+        spine.set_color("#333")
 
-    ax.axhline(y=0, color="gray", linewidth=0.5, linestyle="--")
-    ax.set_xlim(0, 90)
-    ax.set_ylim(-y_max, y_max)
-    ax.set_xlabel("比赛时间 (分钟)", fontsize=10)
-    ax.set_ylabel("动量分", fontsize=10)
-    ax.legend(loc="upper left", fontsize=9)
-    ax.set_title(
-        f"比赛动量走势 - {home_name} vs {away_name}",
-        fontsize=14,
-        fontweight="bold",
-    )
-    ax.grid(True, alpha=0.3)
+    # ---- Annotate key events on all panels ----
+    key_events = [e for e in raw.events if e.event_type in ("Goal", "Card")
+                  or (e.event_type == "subst" and e.detail == "substitution")]
+    for e in key_events:
+        mi = e.time_elapsed or 0
+        if mi <= 0:
+            continue
+        color = HOME_COLOR if e.team_id == raw.home_team.id else AWAY_COLOR
+        icon = {"Goal": "⚽", "Card": "▴", "subst": "⇅"}.get(e.event_type, "|")
+        # Only annotate on the top panel to avoid clutter
+        axes[0].axvline(x=mi, color=color, linewidth=0.8, alpha=0.5, linestyle="--")
+        axes[1].axvline(x=mi, color=color, linewidth=0.8, alpha=0.5, linestyle="--")
+        axes[2].axvline(x=mi, color=color, linewidth=0.8, alpha=0.5, linestyle="--")
 
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    fig.suptitle(f"比赛趋势走势 — {home_name} vs {away_name}",
+                 fontsize=14, color="white", fontweight="bold", y=0.99)
+    fig.tight_layout(rect=[0, 0.02, 1, 0.96])
+    fig.savefig(output_path, dpi=dpi, facecolor=fig.get_facecolor(), bbox_inches="tight")
     plt.close(fig)
     return output_path
+
+
+def _get_trend_series(trends: dict, team_id: int, type_id: int) -> list[tuple[float, float]]:
+    """Extract (minute, value) series from trends dict."""
+    team_trends = trends.get(team_id, {})
+    pts = team_trends.get(type_id, [])
+    if not pts:
+        return []
+    # Sort by minute and deduplicate
+    seen = set()
+    result = []
+    for p in sorted(pts, key=lambda p: p.minute):
+        if p.minute not in seen:
+            seen.add(p.minute)
+            result.append((float(p.minute), float(p.value)))
+    return result

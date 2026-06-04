@@ -40,14 +40,12 @@ def generate_narrative(
     return text
 
 
-def generate_all_visuals(raw, computed, visual_config: dict, output_dir: str) -> dict:
+def generate_all_visuals(raw, computed, visual_config: dict, output_dir: str, sub_impacts=None) -> dict:
     from src.engine.metrics import _stat
-    from src.engine.ratings import get_player_radar_values, get_team_average_radar
-    from src.visualizer.momentum import plot_momentum_curve
+    from src.visualizer.momentum import plot_momentum_curve_v3
     from src.visualizer.pass_network import plot_pass_network
-    from src.visualizer.radar import plot_player_radar
-    from src.visualizer.shots import build_shot_data_from_players, plot_shot_map
-    from src.visualizer.subs import plot_subs_comparison
+    from src.visualizer.efficiency import plot_efficiency_comparison
+    from src.visualizer.subs import plot_sub_impacts_v3
     from src.visualizer.xg_hist import plot_xg_histogram
 
     dpi = visual_config.get("dpi", 150)
@@ -61,23 +59,14 @@ def generate_all_visuals(raw, computed, visual_config: dict, output_dir: str) ->
     home_xg = sum(p.xg for p in raw.home_players) if raw.home_players else float(_stat(hs, "Expected Goals", default=0))
     away_xg = sum(p.xg for p in raw.away_players) if raw.away_players else float(_stat(aws, "Expected Goals", default=0))
 
-    home_shots_data = build_shot_data_from_players(raw.home_players, raw.home_team.id)
-    away_shots_data = build_shot_data_from_players(raw.away_players, raw.away_team.id)
-
-    result["shots"] = plot_shot_map(
-        home_shots_data, away_shots_data,
-        home_xg, away_xg,
-        raw.home_team.name, raw.away_team.name,
-        str(images_dir / "01_shots.png"),
-        dpi=dpi,
+    # Efficiency comparison chart (replaces shot map)
+    result["efficiency"] = plot_efficiency_comparison(
+        raw, str(images_dir / "01_efficiency.png"), dpi=dpi,
     )
 
-    result["momentum"] = plot_momentum_curve(
-        computed.momentum["segments"],
-        computed.momentum["key_events"],
-        raw.home_team.name, raw.away_team.name,
-        str(images_dir / "02_momentum.png"),
-        dpi=dpi,
+    # Momentum trends v3 (uses actual trends data)
+    result["momentum"] = plot_momentum_curve_v3(
+        raw, str(images_dir / "02_momentum.png"), dpi=dpi,
     )
 
     if raw.home_lineup:
@@ -104,26 +93,11 @@ def generate_all_visuals(raw, computed, visual_config: dict, output_dir: str) ->
     else:
         result["pass_away"] = ""
 
-    if computed.home_hidden_mvp:
-        hidden = computed.home_hidden_mvp
-        player_vals = get_player_radar_values(hidden)
-        comp_vals = get_team_average_radar(raw.home_players)
-        result["radar_hidden"] = plot_player_radar(
-            player_vals, comp_vals,
-            hidden.name, f"{raw.home_team.name} 全队平均",
-            str(images_dir / "04b_radar_hidden.png"),
-            dpi=dpi,
-            is_hidden_mvp=True,
+    # Sub impact multi-metric chart (replaces old subs chart)
+    if sub_impacts:
+        result["subs"] = plot_sub_impacts_v3(
+            raw, sub_impacts, str(images_dir / "04_subs.png"), dpi=dpi,
         )
-    else:
-        result["radar_hidden"] = ""
-
-    result["subs_home"] = plot_subs_comparison(
-        computed.home_subs_effect,
-        raw.home_team.name,
-        str(images_dir / "05_subs.png"),
-        dpi=dpi,
-    )
 
     result["xg_hist"] = plot_xg_histogram(
         computed.ldi_result,
@@ -132,6 +106,15 @@ def generate_all_visuals(raw, computed, visual_config: dict, output_dir: str) ->
         str(images_dir / "06_xg_hist.png"),
         dpi=dpi,
     )
+
+    # Add lineup visualization
+    try:
+        from src.visualizer.lineup import plot_lineup
+        lineup_path = plot_lineup(raw, str(images_dir / "00_lineup.png"), dpi=dpi)
+        if lineup_path:
+            result["lineup"] = lineup_path
+    except Exception as e:
+        logger.warning(f"Lineup viz skipped: {e}")
 
     rel = {}
     for k, v in result.items():
@@ -199,6 +182,16 @@ def main():
         logger.info(f"Top signals: {signal_names}")
         logger.info(f"  ({len(all_signals)} total signals detected, top 6 selected for LLM)")
 
+        # --- v3: layer 1 hard facts & sub impact analysis ---
+        from src.engine.cross_insights import compute_cross_insights
+        from src.engine.sub_impact import analyze_sub_impacts
+
+        logger.info("Computing hard facts (Layer 1)...")
+        sub_impacts = analyze_sub_impacts(raw)
+        hard_facts = compute_cross_insights(raw, sub_impacts)
+        logger.info(f"Sub impacts: {len(sub_impacts)} substitutions analyzed")
+        logger.info(f"Hard facts: possession_efficiency={hard_facts.possession_xg_ratio_home:.3f}/{hard_facts.possession_xg_ratio_away:.3f}")
+
         computed_path = Path("data/computed") / f"{match_id}.json"
         computed_path.parent.mkdir(parents=True, exist_ok=True)
         import dataclasses
@@ -229,18 +222,31 @@ def main():
         safe_away = "".join(c if c.isalnum() or c in "-_" else "_" for c in raw.away_team.name)
         output_dir = Path("output") / f"{match_id}_{safe_home}_vs_{safe_away}"
 
-        narrative_text = generate_narrative(raw, computed, top_signals, trend_analysis, config["llm"])
-        logger.info("Narrative generated.")
+        # --- v3: six-section narrative ---
+        from src.composer.data_builder import build_narrative_v3
+        from src.composer.prompt_loader import PromptLoader
+        from src.generator.llm_client import LLMClient
+
+        llm = LLMClient(config["llm"])
+        pl = PromptLoader("prompts")
+        sys_p, user_p = build_narrative_v3(raw, computed, top_signals, hard_facts, sub_impacts, trend_analysis, pl)
+        logger.info("Calling LLM for v3 narrative...")
+        narrative_text = llm.generate(sys_p, user_p)
+        logger.info("Narrative (v3) generated.")
 
         if not args.no_images:
-            image_paths = generate_all_visuals(raw, computed, config["visual"], str(output_dir))
+            image_paths = generate_all_visuals(raw, computed, config["visual"], str(output_dir), sub_impacts=sub_impacts)
             logger.info(f"图表已生成: {len(image_paths)} 张")
         else:
             image_paths = {}
 
-        from src.reporter.build_report import build_report
-        report_path = build_report(raw, computed, narrative_text, all_signals, image_paths, str(output_dir))
-        logger.info(f"报告已生成: {report_path}")
+        from src.reporter.build_report import build_report_v3_html
+        report_path = build_report_v3_html(
+            raw, narrative_text, image_paths, str(output_dir),
+            hard_facts=hard_facts, sub_impacts=sub_impacts,
+            signals=all_signals, computed=computed,
+        )
+        logger.info(f"报告 (v3 HTML) 已生成: {report_path}")
 
     logger.info(f"\n完成！共处理 {len(match_ids)} 场比赛。")
 
