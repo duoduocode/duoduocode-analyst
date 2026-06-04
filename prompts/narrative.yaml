@@ -1,0 +1,105 @@
+system: |
+  你是一名专业的足球比赛分析师，为微信公众号撰写深度比赛报告。你的文字需要兼具专业性、可读性和洞察力。
+
+  写作要求：
+  1. 以时间线为骨架展开叙事，按比赛进程讲述故事
+  2. 每个阶段的信号和事件要融入叙述中，不要单独罗列
+  3. 数据支撑观点，但不要堆砌数字
+  4. 语言生动但不浮夸，专业但不晦涩
+  5. 控制在800-1200字
+  6. 输出纯文本，不要markdown格式
+  7. 不要复述下面提供的"完整比赛弧线"原文，而是基于其信息用自己的语言重新组织
+
+user: |
+  请为以下比赛撰写一篇深度分析报告。
+
+  ## 比赛信息
+  {{ home_team }} {{ home_goals }} - {{ away_goals }} {{ away_team }}
+  {% if halftime_home is defined %}半场：{{ halftime_home }} - {{ halftime_away }}{% endif %}
+  {% if fulltime_home is not none and fulltime_home != home_goals %}常规时间：{{ fulltime_home }} - {{ fulltime_away }}{% endif %}
+  {% if extratime_home is not none %}加时赛：{{ extratime_home }} - {{ extratime_away }}{% endif %}
+  {% if penalty_home is not none %}点球大战：{{ penalty_home }} - {{ penalty_away }}{% endif %}
+
+  ## 核心数据面板
+  | 指标 | {{ home_team }} | {{ away_team }} |
+  |---|---:|---:|
+  | 控球率 | {{ home_possession }}% | {{ away_possession }}% |
+  | xG（预期进球）| {{ home_xg }} | {{ away_xg }} |
+  | 射门 / 射正 | {{ home_shots }} / {{ home_shots_on }} | {{ away_shots }} / {{ away_shots_on }} |
+  | 绝佳机会 | {{ home_big_chances }} | {{ away_big_chances }} |
+  | 禁区内射门 | {{ home_shots_ib }} | {{ away_shots_ib }} |
+  | 传球成功率 | {{ home_pass_acc }}% | {{ away_pass_acc }}% |
+  | 角球 | {{ home_corners }} | {{ away_corners }} |
+  | 抢断 / 犯规 / 黄牌 | {{ home_tackles }} / {{ home_fouls }} / {{ home_yellows }} | {{ away_tackles }} / {{ away_fouls }} / {{ away_yellows }} |
+
+  ## 比赛弧线（按时间线组织）
+  {% for phase in phases %}
+  ### 第{{ phase.start }}-{{ phase.end }}分钟：{{ phase.label }}
+  {% if phase.events %}
+  事件：
+  {% for ev in phase.events %}
+    · {{ ev.minute }}' {{ ev.type }}：{{ ev.description }}（{{ ev.team }}）
+  {% endfor %}
+  {% endif %}
+  {% if phase.signals %}
+  关联信号：
+  {% for sig in phase.signals %}
+    · [{{ sig.category }}] {{ sig.name }}（强度 {{ "%.2f"|format(sig.strength) }}）：{{ sig.hint }}
+  {% endfor %}
+  {% endif %}
+  {% if phase.stats %}
+  阶段数据：{{ phase.stats }}
+  {% endif %}
+  {% endfor %}
+
+  ## 全局信号（贯穿整场比赛的叙事线索）
+  {% for sig in global_signals %}
+  · [{{ sig.category }}] {{ sig.name }}（强度 {{ "%.2f"|format(sig.strength) }}）
+    {{ sig.hint }}
+    {% if sig.evidence %}证据：{% for k, v in sig.evidence.items() %}{{ k }}={{ v }} {% endfor %}{% endif %}
+  {% endfor %}
+
+  ## 关键球员
+  **{{ home_team }}**
+  {% for p in home_key_players %}
+  · {{ p.name }}({{ p.position }}) 评分{{ p.rating }} {{ p.minutes }}分钟 | 进球{{ p.goals }} 助攻{{ p.assists }} 射正{{ p.shots_on }} 关键传球{{ p.passes_key }} 抢断{{ p.tackles_total }} xG{{ p.xg }}
+  {% endfor %}
+
+  **{{ away_team }}**
+  {% for p in away_key_players %}
+  · {{ p.name }}({{ p.position }}) 评分{{ p.rating }} {{ p.minutes }}分钟 | 进球{{ p.goals }} 助攻{{ p.assists }} 射正{{ p.shots_on }} 关键传球{{ p.passes_key }} 抢断{{ p.tackles_total }} xG{{ p.xg }}
+  {% endfor %}
+
+  {% if trend_lines %}
+  ## 趋势洞察
+  {% for tl in trend_lines %}
+  · {{ tl }}
+  {% endfor %}
+  {% endif %}
+
+  {% if coaches %}
+  主教练：{{ home_team }} — {{ home_coach }} | {{ away_team }} — {{ away_coach }}
+  {% endif %}
+
+  请生成报告。按以下格式输出（注意：【】中的标题必须完全一致，不能省略任何章节）：
+
+  【标题】
+  （一句话吸引眼球的标题）
+
+  【导语】
+  （2-3句话概括比赛核心看点和矛盾，点出关键数据反常点）
+
+  【比赛复盘】
+  （按比赛时间线展开叙述，从开球到终场，融合各阶段关键事件、信号和数据。不要用bullet points，要写成流畅的段落。每一段都是一个时间阶段的故事，自然过渡到下一段。）
+
+  【数据深挖】
+  （挑2-3组最反常或最有价值的数据进行深度解读，必须用到全局信号中的洞察）
+
+  【球员特写】
+  （1-2名关键球员的详细点评，结合他们在比赛弧线中的实际表现）
+
+  【战术点评】
+  （双方战术布置和临场调整的简要分析）
+
+  【总结】
+  （1-2句话总结和展望）

@@ -6,7 +6,9 @@
 
 ## 1. 项目概述
 
-**目标**：从 **SportMonks Football API V3** 获取比赛数据 → 计算自创指标 → 调用 DeepSeek LLM 生成分析文字 → mplsoccer 生成图表 → 拼装 Markdown 图文比赛报告，适配微信公众号发布。
+**目标**：从 **SportMonks Football API V3** 获取比赛全量数据 → 趋势分析 + **36 个信号检测器**自动识别比赛看点 → 调用 DeepSeek LLM 生成动态叙事 → mplsoccer 生成图表 → 拼装 Markdown 图文报告，适配微信公众号发布。
+
+**核心理念**：不再用固定模板套每场比赛，而是通过**信号驱动**自动发现每场比赛最值得分析的独特角度。
 
 **技术栈**：Python 3.11+ / requests / pyyaml / matplotlib / mplsoccer / numpy / scipy / markdown / jinja2
 
@@ -14,7 +16,7 @@
 - 优先尝试 `openai` SDK (Python 包)
 - 后备：纯 `requests` HTTP POST 到 `/chat/completions`
 
-**数据来源**：SportMonks V3 — 单次 API 请求获取全部数据（统计+事件+阵容+比分+球队信息）。
+**数据来源**：SportMonks V3 — 单次 API 请求（含 `periods.statistics`, `periods.events`, `trends`, `coaches` 等全量 include）获取 ~1700 条趋势记录 + 分时段统计 + 球员/球队/事件/比分数据。
 
 ---
 
@@ -32,7 +34,7 @@ set DEEPSEEK_API_KEY=你的key
 
 # 3. 生成报告
 python run.py --match 19683241                    # 单场完整报告 (PSG vs Arsenal)
-python run.py --match 19683241 --dry-run           # 仅采集+计算，不调 LLM
+python run.py --match 19683241 --dry-run           # 采集+计算+信号检测，不调 LLM
 python run.py --match 19683241 --no-images         # 跳过图表（matplotlib 不可用时）
 python run.py --league 732 --date 2026-06-14       # 批量生成某日全部比赛
 ```
@@ -47,20 +49,24 @@ duoduocode-analyst/
 ├── config.example.yaml
 ├── run.py                               # 入口脚本
 ├── AGENTS.md                            # 本文档
-├── prompts/                             # 9 个 Jinja2+YAML Prompt 模板
-│   ├── cover.yaml / contrast.yaml / momentum.yaml / tactics.yaml
-│   ├── mvp.yaml / hidden_mvp.yaml / black_hole.yaml
+├── prompts/                             # Prompt 模板 (Jinja2+YAML)
+│   ├── narrative.yaml                   # ★ 信号驱动叙事模板（替代旧9模块）
+│   ├── cover.yaml / contrast.yaml / ... # 旧模板（已不再使用，可删除）
+│   ├── momentum.yaml / tactics.yaml / mvp.yaml
+│   ├── hidden_mvp.yaml / black_hole.yaml
 │   └── subs.yaml / replay.yaml
 ├── src/
 │   ├── collector/
-│   │   └── api_client.py               # SportMonks V3 客户端 + type_id 映射表
+│   │   └── api_client.py               # SportMonks V3 客户端 + type_id 映射 + 全量数据解析
 │   ├── engine/
-│   │   ├── metrics.py                  # CI/TCR/PE + ComputedData + compute_all
-│   │   ├── ratings.py                  # 球员贡献分 + MVP/隐性MVP/黑洞 分类
-│   │   └── simulator.py                # 蒙特卡洛 xG 模拟 + LDI
+│   │   ├── metrics.py                  # CI/TCR/PE/LDI 自创指标 + ComputedData
+│   │   ├── ratings.py                  # 球员贡献分 + MVP/隐性MVP/黑洞分类
+│   │   ├── simulator.py                # 蒙特卡洛 xG 模拟
+│   │   ├── trends.py                   # ★ 趋势分析：增量计算/窗口聚合/斜率/转折点
+│   │   └── signals.py                  # ★ 36 个信号检测器 + Top N 筛选
 │   ├── composer/
-│   │   ├── prompt_loader.py            # YAML 加载 + Jinja2 渲染
-│   │   └── data_builder.py             # 9 个模块的数据→Prompt 组装
+│   │   ├── prompt_loader.py            # YAML 加载 + Jinja2 渲染（不变）
+│   │   └── data_builder.py             # ★ 信号驱动叙事组装（替代旧9模块builder）
 │   ├── generator/
 │   │   └── llm_client.py              # DeepSeek（openai SDK 优先，requests 后备）
 │   ├── visualizer/
@@ -72,14 +78,14 @@ duoduocode-analyst/
 │   │   ├── subs.py                     # 换人对比柱状图
 │   │   └── xg_hist.py                  # xG 模拟分布图
 │   ├── reporter/
-│   │   └── build_report.py            # Markdown + HTML 报告拼装（含队徽/头像/中文名）
+│   │   └── build_report.py            # ★ 动态章节报告拼装（基于LLM输出+信号）
 │   └── player_names.py                # 球员中英文名映射表
 ├── design/                             # 产品文档
-│   ├── SportMonks统计指标全集.md        # 全部可用的球队+球员+事件指标
-│   └── SportMonks指标升级对比.md        # 套餐升级前后对比
+│   ├── SportMonks统计指标全集.md        # 全部可用的球队+球员+事件指标 (type_id映射)
+│   └── SportMonks_Fixture_Include全集.md # SportMonks 全部 include 参数说明
 ├── data/
-│   ├── raw/{match_id}/raw_data.json    # 解析后的结构化数据
-│   └── computed/{match_id}.json        # 计算后指标
+│   ├── raw/{match_id}/raw_data.json    # 解析后的结构化数据（含 trends/periods/coaches）
+│   └── computed/{match_id}.json        # 计算后指标 + 检测到的信号
 └── output/{match_id}_{HOME}_vs_{AWAY}/
     ├── images/*.png                    # 7 张图表
     ├── report.md                       # 完整图文报告
@@ -88,22 +94,41 @@ duoduocode-analyst/
 
 ---
 
-## 4. 核心架构与数据流
+## 4. 核心架构与数据流（信号驱动管线）
 
 ```
 run.py
   ├─ 1. load_config() → 读取 config.yaml，替换 ${ENV_VAR} 占位符
+  │
   ├─ 2. fetch_all(match_id) → SportMonks 单次请求
-  │      GET /fixtures/{id}?include=statistics;lineups.details;events;participants;scores
-  │      ├─ statistics[] → type_id 转换 → home_stats / away_stats (dict, 40 项)
-  │      ├─ lineups.details[] → type_id 转换 → home_players / away_players (PlayerStats)
-  │      ├─ events[] → type_id 转换 → events (MatchEvent)
+  │      GET /fixtures/{id}?include=
+  │        statistics;periods.statistics;periods.events;trends;
+  │        lineups.details;events;participants;scores;coaches;referees
+  │      ├─ statistics[] → home_stats / away_stats (dict, 40 项)
+  │      ├─ lineups.details[] → home_players / away_players (PlayerStats, 30+ 字段)
+  │      ├─ events[] → events (MatchEvent, 含 period_id)
+  │      ├─ periods[] → PeriodData (分时段统计+事件)
+  │      ├─ trends[] → {participant_id: {type_id: [TrendPoint]}} (~1700 条)
+  │      ├─ coaches[] → home_coach / away_coach (CoachInfo)
   │      ├─ participants[] → TeamInfo (id, name, logo_url)
-  │      └─ scores[] → ScoreInfo
-  ├─ 3. compute_all() → 计算 CI/TCR/PE/LDI/动量/球员分类/标签
-  ├─ 4. generate_all_texts() → 9 次 LLM 调用
-  ├─ 5. generate_all_visuals() → 7 张 mplsoccer 图表 (可选)
-  └─ 6. build_report() → Markdown + HTML 输出
+  │      └─ scores[] → ScoreInfo + period_scores
+  │
+  ├─ 3. compute_all(raw) → CI/TCR/PE/LDI/动量/球员分类/标签
+  │
+  ├─ 4. analyze_trends(raw) → 增量计算 / 窗口聚合 / 转折点 / 对抗衰减 / 压迫衰减 / 风格转变
+  │
+  ├─ 5. detect_all(raw, computed, trend_analysis)
+  │      → 36 个检测器并行运行，输出 SignalResult[] 按强度排序
+  │      → get_top_signals() 取 Top 6（跨类别去重）
+  │
+  ├─ 6. build_narrative() + LLM → 单次 LLM 调用生成完整叙事
+  │      Prompt 包含：核心数据面板 + 关键事件 + 分时段 + 信号列表 + 趋势发现 + 球员亮点
+  │
+  ├─ 7. generate_all_visuals() → 7 张 mplsoccer 图表 (可选)
+  │
+  └─ 8. build_report(narrative, signals) → 解析 LLM 输出的【标题】【导语】等章节
+        + 核心数据面板 + 图表 + 信号面板 + 分期段对比 + 事件时间线 + 球员评分表
+        → Markdown + HTML 双输出
 ```
 
 ---
@@ -116,46 +141,41 @@ run.py
 
 40 项球队级指标，完整列表见 `design/SportMonks统计指标全集.md`。
 
-```python
-FIXTURE_STAT_MAP: dict[int, str] = {
-    34: "Corner Kicks",      45: "Ball Possession",
-    42: "Total Shots",       86: "Shots on Goal",
-    41: "Shots off Goal",    58: "Blocked Shots",
-    49: "Shots insidebox",   50: "Shots outsidebox",
-    64: "Hit Woodwork",      580: "Big Chances Created",
-    581: "Big Chances Missed", 80: "Total passes",
-    81: "Successful Passes", 82: "Passes %",
-    117: "Key Passes",       78: "Tackles",
-    100: "Interceptions",    56: "Fouls",
-    106: "Duels Won",        108: "Dribbles Attempts",
-    109: "Successful Dribbles", 65: "Successful Headers",
-    98: "Crosses",           99: "Accurate Crosses",
-    43: "Attacks",           44: "Dangerous Attacks",
-    52: "Goals",             79: "Assists",
-    59: "Substitutions",     87: "Injuries",
-    # ... 等共 40 项
-}
-```
-
 ### 5.2 球员统计映射 (`PLAYER_STAT_MAP`)
 
-25 项球员级指标，含高阶数据：
+已从 25 项扩展到 **49 项**，含高阶数据：
 
 ```python
 PLAYER_STAT_MAP: dict[int, str] = {
+    # 基础
     118: "rating",           119: "minutes_played",
+    40: "captain",           1490: "man_of_match",
+    120: "touches",
+    # 射门/进球
     52: "goals",             79: "assists",
     42: "shots_total",       86: "shots_on",
+    47: "penalties",
+    # 传球
     80: "passes_total",      117: "passes_key",
-    1584: "passes_accuracy", 78: "tackles_total",
-    100: "tackles_interceptions", 105: "duels_total",
-    106: "duels_won",        108: "dribbles_attempts",
-    109: "dribbles_success", 56: "fouls_committed",
-    96: "fouls_drawn",       98: "crosses",
+    1584: "passes_accuracy", 27269: "passes_final_third",
+    98: "crosses",
+    # 防守
+    78: "tackles_total",     100: "tackles_interceptions",
+    27268: "tackles_won_pct", 97: "blocked_shots",
+    101: "clearances",       27271: "ball_recoveries",
     57: "saves",
+    # 对抗
+    105: "duels_total",      106: "duels_won",
+    # 盘带
+    108: "dribbles_attempts", 109: "dribbles_success",
+    # 犯规
+    56: "fouls_committed",   96: "fouls_drawn",
+    84: "yellowcards",       83: "redcards",
+    # 失误
+    571: "error_lead_to_goal", 27273: "possession_lost",
     # 高阶 (需套餐支持)
     5304: "xg",              5305: "xgot",
-    27271: "ball_recoveries",
+    9685: "shooting_performance",
 }
 ```
 
@@ -176,12 +196,23 @@ PLAYER_STAT_MAP: dict[int, str] = {
 | 21 | 直红 | Card | redcard |
 | 22 | 点球大战罚失/被扑 | Goal | pen_shootout_miss |
 | 23 | 点球大战进球 | Goal | pen_shootout_goal |
-| 55 | VAR | VAR | var |
+| 55 | VAR 介入 | VAR | var |
 
-⚠️ 换人事件：`player_name` = 换上球员 → `assist_name`；`related_player_name` = 换下球员 → `player_name`（与 API-Football 相反）。
-⚠️ 进球事件：`related_player_name` = 助攻者 → `assist_name`。
+⚠️ **换人事件**：SportMonks 中 `player_name` = 换上球员，`related_player_name` = 换下球员（与 API-Football 相反）。
+⚠️ **进球事件**：`related_player_name` = 助攻者 → `assist_name`。
+⚠️ **MatchEvent 含 `period_id`**：区分常规时间(1-2)、加时赛(3-4)、点球大战(5)。
 
-### 5.4 认证方式
+### 5.4 趋势数据 (`trends`) 结构
+
+API 返回 ~1500-1700 条逐分钟累积记录。解析后结构：
+```python
+trends: dict[int, dict[int, list[TrendPoint]]]
+#         participant_id → type_id → [TrendPoint(minute, value, period_id), ...]
+```
+
+常出现的 type_id：80(传球), 43(进攻), 106(赢得对抗), 45(控球), 98(传中), 42(射门), 44(威胁进攻), 27271(球权回收) 等。
+
+### 5.5 认证方式
 
 ```python
 # SportMonks: api_token 作为 query param
@@ -190,7 +221,96 @@ requests.get(url, params={"api_token": token, "include": "..."})
 
 ---
 
-## 6. 自创指标速查
+## 6. 信号检测系统
+
+36 个检测器分 7 大类，每个返回 `SignalResult(name, category, strength, evidence, narrative_hint)`。
+
+### 6.1 A. 比分背离 (Score Deviation) — 6 个
+
+| 检测器 | 触发条件 |
+|--------|---------|
+| `xg_upset` | xG 劣势方赢了比赛 (xG gap > 0.3) |
+| `conversion_anomaly` | 射门转化率异常高或异常低 |
+| `penalty_decided` | 点球进球数 ≥ 分差 |
+| `red_card_turning` | 红牌后比分走势逆转 |
+| `own_goal_impact` | 乌龙球直接决定了比赛结果 |
+| `late_winner` | 75 分钟后进球改变了胜者 |
+
+### 6.2 B. 效率撕裂 (Efficiency Tear) — 6 个
+
+| 检测器 | 触发条件 |
+|--------|---------|
+| `possession_waste` | 高控球但低 xG（控球无效） |
+| `counter_attack_efficiency` | 低控球但每次射门 xG 极高 |
+| `pass_efficiency_gap` | 双方关键传球率差距 > 3% |
+| `shot_quality_gap` | 双方 xG/shot 差距 ≥ 2 倍 |
+| `corner_efficiency` | 角球直接/间接进球 ≥ 2 个 |
+| `big_chance_conversion` | 绝佳机会错失率 > 60% |
+
+### 6.3 C. 个人英雄/罪人 (Individual) — 6 个
+
+| 检测器 | 触发条件 |
+|--------|---------|
+| `one_man_team` | 单人包办全队 ≥ 75% 进球 |
+| `gk_hero` | 门将扑救 ≥ 5 次 |
+| `gk_disaster` | 丢球 3+ 且扑救成功率 < 50% |
+| `super_sub` | 替补出场贡献球+助 ≥ 3 分 |
+| `fatal_error` | `error_lead_to_goal` > 0 |
+| `rating_paradox` | 高分但基础数据差 |
+
+### 6.4 D. 结构性问题 (Structural) — 6 个
+
+| 检测器 | 触发条件 |
+|--------|---------|
+| `wing_domination` | 传中次数差距 ≥ 2.5 倍 |
+| `attack_channel_bias` | 单路进攻占比 > 50% |
+| `aerial_domination` | 成功头球差距 ≥ 2 倍 |
+| `tactical_fouls` | 犯规多但黄牌少（聪明的战术犯规） |
+| `sub_timing_impact` | 早期换人 (< 30') 或拖延时间换人 (≥ 85') |
+| `formation_mismatch` | 禁区外射门 > 禁区内 ×1.5 |
+
+### 6.5 E. 叙事钩子 (Narrative) — 6 个
+
+| 检测器 | 触发条件 |
+|--------|---------|
+| `mirror_match` | 5 项指标双方差距 < 25% |
+| `high_scoring` | 总进球 ≥ 5 |
+| `clean_sheet` | 一方零封 |
+| `comeback` | 先落后再逆转 |
+| `draw_drama` | 平局但 xG 差大 |
+| `rare_event` | 3+ 中框 / 2+ 红牌 |
+
+### 6.6 F. 淘汰赛专项 (Knockout) — 8 个
+
+| 检测器 | 触发条件 |
+|--------|---------|
+| `halftime_adjustment` | 上下半场射门差逆转 |
+| `extra_time_collapse` | 加时赛射门率降 > 50% |
+| `penalty_shootout_hero` | 点球大战有人罚失 |
+| `lead_protect_mode` | 控球率从 >55% 骤降至 <45% |
+| `et_sub_impact` | 加时赛有换人 |
+| `diff_stage_rhythm` | 不同阶段射门数差 ≥ 3 倍 |
+| `period_goal_cluster` | 单时段 3+ 进球 |
+| `dominant_et` | 加时赛射门 ≥ 3 倍对手 |
+
+### 6.7 G. 趋势驱动 (Trends) — 6 个
+
+| 检测器 | 触发条件 |
+|--------|---------|
+| `rhythm_swing` | 比赛节奏主导权转换 ≥ 3 次 |
+| `duel_decay_alert` | 对抗成功率前后半场衰减 > 20% |
+| `stamina_fade` | 压迫效率后半段衰减 > 20% |
+| `tactical_shift` | 长传/短传或传中/进攻比例显著变化 |
+| `turning_point_alert` | 趋势数据检测到多个转折点 |
+| `momentum_surge` | 进攻速率在某时刻急剧攀升 |
+
+### 信号筛选策略
+
+`get_top_signals()` 先按类别各取最强信号，再从剩余中按强度补齐至 Top 6，确保报告角度多样性。
+
+---
+
+## 7. 自创指标速查（辅助参考）
 
 | 指标 | 公式（核心） | 范围 | 数据源 |
 |---|---|---|---|
@@ -199,11 +319,11 @@ requests.get(url, params={"api_token": token, "include": "..."})
 | **PE%** 压迫效率 | 100×(回收/(犯规+1)) / 双方之和 | 0-100 | Ball Recoveries, Fouls |
 | **LDI** 运气偏离 | P(实际比分)/P(最可能比分) | 0-1+ | xG + 蒙特卡洛模拟 |
 
-指标解读区间见 `src/engine/metrics.py`。
+> 注：自创指标在 v2 中降级为辅助参考。报告叙事主要由信号检测器驱动，不再围绕 CI/TCR/PE 展开。
 
 ---
 
-## 7. 降级策略
+## 8. 降级策略
 
 | 场景 | 策略 |
 |---|---|
@@ -213,56 +333,79 @@ requests.get(url, params={"api_token": token, "include": "..."})
 | `openai` SDK 未安装 | → LLMClient 自动降级为 `requests` HTTP POST |
 | xG 无球队级 | → 从球员 xG(5304) 汇总 |
 | Ball Recoveries 无球队级 | → 从球员 ball_recoveries(27271) 汇总 |
+| Trends 数据为空 | → 趋势驱动 6 个检测器跳过，其余 30 个正常执行 |
+| Periods 数据为空 | → 淘汰赛专项 8 个检测器降级为通用逻辑 |
 | 中文方框 | → `src/visualizer/__init__.py` 已配置 SimHei / Microsoft YaHei |
 
 ---
 
-## 8. 调试建议
+## 9. 调试建议
 
-### 8.1 先 dry-run
+### 9.1 先 dry-run（含信号检测）
 ```bash
 python run.py --match 19683241 --dry-run
 ```
-只拉数据 + 算指标，不调 LLM。检查 `data/raw/{id}/raw_data.json` 确认字段是否正确。
+只拉数据 + 算指标 + 趋势分析 + 信号检测，不调 LLM。检查 `data/raw/{id}/raw_data.json` 和 `data/computed/{id}.json`。
 
-### 8.2 查看当前可用指标
+### 9.2 查看检测到的信号
 ```bash
-python -c "import json; d=json.load(open('data/raw/19683241/raw_data.json','utf-8')); print(list(d['home_stats'].keys()))"
+python -c "
+import json; d=json.load(open('data/computed/19683241.json','r',encoding='utf-8'))
+for s in d.get('signals', []):
+    print(f\"{s['strength']:.2f} [{s['category']}] {s['name']}: {s['narrative_hint'][:80]}\")
+"
 ```
 
-### 8.3 检查 LLM 是否可用
-```bash
-python -c "from src.generator.llm_client import LLMClient; import yaml; c=LLMClient(yaml.safe_load(open('config.yaml'))['llm']); print(c.generate('你是翻译','将hello翻译成中文'))"
+### 9.3 查看趋势数据中的可用 type_id
+```python
+import json
+raw = json.load(open("data/raw/19683241/raw_data.json", "r", encoding="utf-8"))
+trends = raw.get("trends", {})
+for pid, type_dict in trends.items():
+    print(f"Participant {pid}: types = {list(type_dict.keys())[:20]} ...")
 ```
 
-### 8.4 单模块重跑
+### 9.4 单模块重跑
 ```python
 from src.collector.api_client import fetch_all
 import yaml
 config = yaml.safe_load(open("config.yaml"))
 raw = fetch_all(19683241, config["sportmonks"])
 
+# 趋势分析
+from src.engine.trends import analyze_trends
+ta = analyze_trends(raw)
+print(f"Turning points: {len(ta.turning_points)}")
+print(f"Duel decay home: {ta.duel_decay_home}")
+print(f"Pressing fade: H={ta.pressing_fade_home:.3f} A={ta.pressing_fade_away:.3f}")
+
+# 信号检测
+from src.engine.signals import detect_all, get_top_signals
 from src.engine.metrics import compute_all
 computed = compute_all(raw)
-
-# 验证 xG 采集
-home_xg = sum(p.xg for p in raw.home_players)
-away_xg = sum(p.xg for p in raw.away_players)
-print(f"PSG xG: {home_xg:.4f}, Arsenal xG: {away_xg:.4f}")
+all_sigs = detect_all(raw, None, ta)
+for s in get_top_signals(all_sigs, 6):
+    print(f"  {s.strength:.2f} [{s.category}] {s.name}")
 ```
 
-### 8.5 查看球队级 xG / Recoveries（从球员汇总）
+### 9.5 验证 xG / Recoveries 采集
 ```python
 import json
 raw = json.load(open("data/raw/19683241/raw_data.json", "r", encoding="utf-8"))
 home_xg = sum(p.get("xg", 0) or 0 for p in raw["home_players"])
+away_xg = sum(p.get("xg", 0) or 0 for p in raw["away_players"])
 home_rec = sum(p.get("ball_recoveries", 0) or 0 for p in raw["home_players"])
-print(f"xG: {home_xg:.4f}  Recoveries: {home_rec}")
+print(f"xG: H={home_xg:.4f} A={away_xg:.4f}  Recoveries: H={home_rec}")
+```
+
+### 9.6 检查 LLM 是否可用
+```bash
+python -c "from src.generator.llm_client import LLMClient; import yaml; c=LLMClient(yaml.safe_load(open('config.yaml'))['llm']); print(c.generate('你是翻译','将hello翻译成中文'))"
 ```
 
 ---
 
-## 9. 已知问题与待办
+## 10. 已知问题与待办
 
 - [x] ~~API-Football 抢断/球权回收缺失~~ → SportMonks 已解决
 - [x] ~~球场Logo未显示~~ → SportMonks 提供 `image_path`
@@ -270,18 +413,22 @@ print(f"xG: {home_xg:.4f}  Recoveries: {home_rec}")
 - [x] ~~换人方向搞反~~ → 已修正 (player_name=换上, related_player_name=换下)
 - [x] ~~事件类型映射错误 (22/23 = VAR/OwnGoal)~~ → 实测修正为点球大战
 - [x] ~~xG 不可用~~ → 球员级 5304/5305 已接入
+- [x] ~~固定模板套所有比赛~~ → v2 信号驱动动态叙事
+- [x] ~~9 次 LLM 调用太慢~~ → v2 单次叙事调用
+- [x] ~~未利用 trends 数据~~ → 已接入逐分钟趋势 + 趋势驱动6个检测器
+- [x] ~~未利用 periods 数据~~ → 已接入分时段统计 + 淘汰赛专项8个检测器
 - [ ] Shot Map 坐标 — SportMonks events 不返回射门 (x,y) 坐标
-- [ ] PPDA (压迫强度) — 无直接数据，需自定义计算
+- [ ] PPDA (压迫强度) — 无直接数据，但 trends 中可间接计算
 - [ ] Pass Network 数据 — 当前 `home_lineup.players` 为空，传球网络图数据不足
 - [ ] 15+ 个未识别球员级 type_id (111/114/115/571/584 等)
 
 ---
 
-## 10. 多环境迁移清单
+## 11. 多环境迁移清单
 
 1. `git clone` 本项目
 2. `pip install requests pyyaml matplotlib mplsoccer numpy scipy openai markdown jinja2`
 3. 设置环境变量 `SPORTMONKS_API_TOKEN` 和 `DEEPSEEK_API_KEY`（或直接写入 config.yaml）
 4. `python -c "from src.collector.api_client import SportMonksClient; print('OK')"` → 验证导入
-5. `python run.py --match 19683241 --dry-run` → 验证数据管线
-6. `python run.py --match 19683241` → 完整生成
+5. `python run.py --match 19683241 --dry-run` → 验证全管线（采集+指标+趋势+信号）
+6. `python run.py --match 19683241` → 完整生成（含 LLM 叙事 + 图表）

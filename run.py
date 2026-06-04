@@ -22,92 +22,22 @@ def load_config(path: str = "config.yaml") -> dict:
     return yaml.safe_load(raw)
 
 
-def generate_all_texts(
-    raw, computed, llm_config: dict
-) -> dict:
-    from src.composer.data_builder import DataBuilder
+def generate_narrative(
+    raw, computed, signals, trend_analysis, llm_config: dict
+) -> str:
+    from src.composer.data_builder import build_narrative
     from src.composer.prompt_loader import PromptLoader
-    from src.engine.ratings import compute_player_contribution
     from src.generator.llm_client import LLMClient
 
     llm = LLMClient(llm_config)
     pl = PromptLoader("prompts")
-    builder = DataBuilder(pl)
-    results = {}
 
-    logger.info("Generating cover...")
-    sys_p, user_p = builder.build_cover(raw, computed)
-    results["cover"] = llm.generate(sys_p, user_p)
+    logger.info("Building narrative prompt...")
+    sys_p, user_p = build_narrative(raw, computed, signals, trend_analysis, pl)
 
-    logger.info("Generating contrast...")
-    sys_p, user_p = builder.build_contrast(raw, computed)
-    results["contrast"] = llm.generate(sys_p, user_p)
-
-    logger.info("Generating momentum...")
-    sys_p, user_p = builder.build_momentum(raw, computed)
-    results["momentum"] = llm.generate(sys_p, user_p)
-
-    logger.info("Generating tactics...")
-    sys_p, user_p = builder.build_tactics(raw, computed)
-    results["tactics"] = llm.generate(sys_p, user_p)
-
-    logger.info("Generating MVP...")
-    home_mvp = computed.home_mvp
-    if home_mvp:
-        sys_p, user_p = builder.build_mvp(home_mvp, raw.home_team.name)
-        results["mvp"] = llm.generate(sys_p, user_p)
-    else:
-        results["mvp"] = "无数据"
-
-    logger.info("Generating hidden MVP...")
-    home_hidden = computed.home_hidden_mvp
-    if home_hidden:
-        rating_rank = 1
-        rated = sorted(
-            [p for p in raw.home_players if p.rating is not None],
-            key=lambda p: p.rating,
-            reverse=True,
-        )
-        for i, p in enumerate(rated):
-            if p.id == home_hidden.id:
-                rating_rank = i + 1
-                break
-        contrib = compute_player_contribution(home_hidden)
-        scored = sorted(
-            [(p, compute_player_contribution(p)) for p in raw.home_players],
-            key=lambda x: x[1],
-            reverse=True,
-        )
-        contrib_rank = 1
-        for i, (p, _) in enumerate(scored):
-            if p.id == home_hidden.id:
-                contrib_rank = i + 1
-                break
-        sys_p, user_p = builder.build_hidden_mvp(
-            home_hidden, raw.home_team.name, rating_rank, contrib, contrib_rank
-        )
-        results["hidden_mvp"] = llm.generate(sys_p, user_p)
-    else:
-        results["hidden_mvp"] = "无数据"
-
-    logger.info("Generating black hole...")
-    home_bh = computed.home_black_hole
-    if home_bh:
-        contrib = compute_player_contribution(home_bh)
-        sys_p, user_p = builder.build_black_hole(home_bh, raw.home_team.name, contrib)
-        results["black_hole"] = llm.generate(sys_p, user_p)
-    else:
-        results["black_hole"] = "无明显低分球员"
-
-    logger.info("Generating subs...")
-    sys_p, user_p = builder.build_subs(raw, computed)
-    results["subs"] = llm.generate(sys_p, user_p)
-
-    logger.info("Generating replay...")
-    sys_p, user_p = builder.build_replay(raw, computed)
-    results["replay"] = llm.generate(sys_p, user_p)
-
-    return results
+    logger.info("Calling LLM for narrative...")
+    text = llm.generate(sys_p, user_p)
+    return text
 
 
 def generate_all_visuals(raw, computed, visual_config: dict, output_dir: str) -> dict:
@@ -128,8 +58,8 @@ def generate_all_visuals(raw, computed, visual_config: dict, output_dir: str) ->
 
     hs = raw.home_stats
     aws = raw.away_stats
-    home_xg = float(_stat(hs, "Expected Goals", "expected_goals", default=0))
-    away_xg = float(_stat(aws, "Expected Goals", "expected_goals", default=0))
+    home_xg = sum(p.xg for p in raw.home_players) if raw.home_players else float(_stat(hs, "Expected Goals", default=0))
+    away_xg = sum(p.xg for p in raw.away_players) if raw.away_players else float(_stat(aws, "Expected Goals", default=0))
 
     home_shots_data = build_shot_data_from_players(raw.home_players, raw.home_team.id)
     away_shots_data = build_shot_data_from_players(raw.away_players, raw.away_team.id)
@@ -250,11 +180,31 @@ def main():
 
         computed = compute_all(raw)
 
+        logger.info("Analyzing trends...")
+        from src.engine.trends import analyze_trends
+        trend_analysis = analyze_trends(raw)
+
+        logger.info("Detecting signals...")
+        from src.engine.signals import detect_all, get_top_signals
+        all_signals = detect_all(raw, None, trend_analysis)
+        top_signals = get_top_signals(all_signals, top_n=6)
+
+        signal_names = [s.name for s in top_signals]
+        logger.info(f"Top signals: {signal_names}")
+        logger.info(f"  ({len(all_signals)} total signals detected, top 6 selected for LLM)")
+
         computed_path = Path("data/computed") / f"{match_id}.json"
         computed_path.parent.mkdir(parents=True, exist_ok=True)
         import dataclasses
 
         computed_dict = dataclasses.asdict(computed)
+        # Save ALL detected signals (not just top 6)
+        computed_dict["signals"] = [
+            {"name": s.name, "category": s.category, "strength": s.strength,
+             "narrative_hint": s.narrative_hint, "evidence": s.evidence}
+            for s in all_signals
+        ]
+        computed_dict["top_signals"] = signal_names
         with open(computed_path, "w", encoding="utf-8") as f:
             json.dump(computed_dict, f, ensure_ascii=False, indent=2, default=str)
 
@@ -273,7 +223,8 @@ def main():
         safe_away = "".join(c if c.isalnum() or c in "-_" else "_" for c in raw.away_team.name)
         output_dir = Path("output") / f"{match_id}_{safe_home}_vs_{safe_away}"
 
-        ai_texts = generate_all_texts(raw, computed, config["llm"])
+        narrative_text = generate_narrative(raw, computed, top_signals, trend_analysis, config["llm"])
+        logger.info("Narrative generated.")
 
         if not args.no_images:
             image_paths = generate_all_visuals(raw, computed, config["visual"], str(output_dir))
@@ -282,7 +233,7 @@ def main():
             image_paths = {}
 
         from src.reporter.build_report import build_report
-        report_path = build_report(raw, computed, ai_texts, image_paths, str(output_dir))
+        report_path = build_report(raw, computed, narrative_text, all_signals, image_paths, str(output_dir))
         logger.info(f"报告已生成: {report_path}")
 
     logger.info(f"\n完成！共处理 {len(match_ids)} 场比赛。")
