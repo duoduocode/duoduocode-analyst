@@ -132,7 +132,8 @@ def _generate_signal_appendix_html(
 def _generate_key_events_html(
     events: list, home_name: str, away_name: str
 ) -> str:
-    key_events = [e for e in events if e.event_type in ("Goal", "Card", "subst")]
+    key_events = [e for e in events if e.event_type in ("Goal", "Card", "subst")
+                  and e.detail not in ("pen_shootout_goal", "pen_shootout_miss")]
     if not key_events:
         return ""
 

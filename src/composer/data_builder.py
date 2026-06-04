@@ -158,6 +158,9 @@ def _build_phases(
         for ev in raw.events:
             if ev.event_type not in ("Goal", "Card", "subst", "VAR", "Shot"):
                 continue
+            # Skip penalty shootout events (not real match goals)
+            if ev.detail in ("pen_shootout_goal", "pen_shootout_miss"):
+                continue
             if start <= ev.time_elapsed < end:
                 desc_parts = [ev.player_name]
                 if ev.assist_name and ev.event_type == "Goal":
