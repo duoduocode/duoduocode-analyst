@@ -41,6 +41,10 @@ class ComputedData:
     away_attack_distribution: dict = field(default_factory=lambda: {"left": 0, "center": 0, "right": 0})
     home_long_ball_ratio: float = 0.0
     away_long_ball_ratio: float = 0.0
+    # PPDA (Passes Per Defensive Action) — 压迫强度指标
+    home_ppda: float = 0.0
+    away_ppda: float = 0.0
+    ppda_segments: list[dict] = field(default_factory=list)
 
 
 def compute_control_index(
@@ -102,6 +106,109 @@ def compute_pressing_efficiency(
     pe_home = round(100 * raw_home / total, 1)
     pe_away = round(100 - pe_home, 1)
     return pe_home, pe_away
+
+
+def compute_ppda(
+    opponent_passes: int, tackles: int, interceptions: int, fouls: int,
+) -> float:
+    """PPDA = 对手传球数 / (抢断 + 拦截 + 犯规)
+    数值越低 = 压迫强度越大（对手每次传球前遭遇的防守动作越多）
+    < 5: 高压迫  5-10: 中等压迫  10-15: 轻度压迫  >15: 低位防守
+    """
+    defensive_actions = tackles + interceptions + fouls
+    if defensive_actions == 0:
+        return 999.0
+    return round(opponent_passes / defensive_actions, 1)
+
+
+def interpret_ppda(ppda: float) -> str:
+    if ppda > 900:
+        return "数据不足"
+    if ppda < 5:
+        return "高压迫 — 对手每次传球都面临密集逼抢"
+    if ppda < 10:
+        return "中等压迫 — 主动在中前场施加压力"
+    if ppda < 15:
+        return "轻度压迫 — 倾向于中位防守"
+    return "低位防守 — 更注重阵型而非逼抢"
+
+
+def compute_ppda_segments(
+    raw: "RawMatchData",
+) -> list[dict]:
+    """从趋势数据计算每15分钟的PPDA片段。
+    需要趋势中的 type_id: 80(传球), 78(抢断), 100(拦截), 56(犯规)
+    降级：趋势数据不可用时返回空列表
+    """
+    if not raw.trends:
+        return []
+
+    home_id = str(raw.home_team.id)
+    away_id = str(raw.away_team.id)
+
+    # Check if we have the needed type_ids
+    needed = {80, 78, 100, 56}
+    home_trends = raw.trends.get(home_id, {})
+    away_trends = raw.trends.get(away_id, {})
+
+    for tid in needed:
+        tid_str = str(tid)
+        if tid_str not in home_trends or tid_str not in away_trends:
+            return []
+
+    # Get trend series
+    from collections import defaultdict
+
+    def get_segmented_increments(points, window_size=15):
+        """Split cumulative trend points into 15-min increments."""
+        if not points:
+            return defaultdict(float)
+        sorted_pts = sorted(points, key=lambda p: (p.period_id, p.minute))
+        buckets = defaultdict(float)
+        prev_val = 0.0
+        prev_minute = 0
+
+        for pt in sorted_pts:
+            seg = (pt.minute // window_size) * window_size
+            # Key: use the current segment's cumulative value minus prev
+            if pt.minute > prev_minute:
+                buckets[seg] = max(0, pt.value - prev_val)
+            prev_val = pt.value
+            prev_minute = pt.minute
+
+        return buckets
+
+    home_passes = get_segmented_increments(home_trends["80"])
+    away_passes = get_segmented_increments(away_trends["80"])
+    home_tackles = get_segmented_increments(home_trends["78"])
+    away_tackles = get_segmented_increments(away_trends["78"])
+    home_int = get_segmented_increments(home_trends["100"])
+    away_int = get_segmented_increments(away_trends["100"])
+    home_fouls = get_segmented_increments(home_trends["56"])
+    away_fouls = get_segmented_increments(away_trends["56"])
+
+    # PPDA per 15-min segment
+    all_segments = set()
+    all_segments.update(home_passes.keys(), away_passes.keys(),
+                        home_tackles.keys(), away_tackles.keys())
+
+    segments = []
+    for seg in sorted(all_segments):
+        # Home PPDA = 对手(Away)的传球 / 主队防守动作
+        h_def = home_tackles.get(seg, 0) + home_int.get(seg, 0) + home_fouls.get(seg, 0)
+        a_def = away_tackles.get(seg, 0) + away_int.get(seg, 0) + away_fouls.get(seg, 0)
+
+        h_ppda = round(away_passes.get(seg, 0) / max(h_def, 0.1), 1)
+        a_ppda = round(home_passes.get(seg, 0) / max(a_def, 0.1), 1)
+
+        label = f"{seg}-{seg + 15}min"
+        segments.append({
+            "label": label,
+            "home_ppda": h_ppda,
+            "away_ppda": a_ppda,
+        })
+
+    return segments
 
 
 def interpret_tcr(tcr: float) -> str:
@@ -342,6 +449,18 @@ def compute_all(raw: RawMatchData) -> ComputedData:
     away_long = float(_stat(aws, "Long Balls", "Long Balls", default=0))
     away_long_ratio = away_long / max(away_total_passes, 1)
 
+    # PPDA — 压迫强度
+    home_tackles_stat = int(float(_stat(hs, "Tackles", "Tackles", default=0)))
+    away_tackles_stat = int(float(_stat(aws, "Tackles", "Tackles", default=0)))
+    home_interceptions = int(float(_stat(hs, "Interceptions", "Interceptions", default=0)))
+    away_interceptions = int(float(_stat(aws, "Interceptions", "Interceptions", default=0)))
+    away_pass_total = int(float(_stat(aws, "Total passes", "Total passes", default=0)))
+    home_pass_total = int(float(_stat(hs, "Total passes", "Total passes", default=0)))
+
+    home_ppda = compute_ppda(away_pass_total, home_tackles_stat, home_interceptions, home_fouls)
+    away_ppda = compute_ppda(home_pass_total, away_tackles_stat, away_interceptions, away_fouls)
+    ppda_segments = compute_ppda_segments(raw)
+
     from src.engine.ratings import compute_player_contribution
 
     return ComputedData(
@@ -371,6 +490,9 @@ def compute_all(raw: RawMatchData) -> ComputedData:
         away_attack_distribution=away_attack_dist,
         home_long_ball_ratio=round(home_long_ratio, 3),
         away_long_ball_ratio=round(away_long_ratio, 3),
+        home_ppda=home_ppda,
+        away_ppda=away_ppda,
+        ppda_segments=ppda_segments,
     )
 
 

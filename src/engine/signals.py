@@ -1546,13 +1546,21 @@ def signal_event_coincident_inflection(trend_analysis, raw) -> "SignalResult":
 # ============================================================
 
 # Weight constants
-_W_GOAL = 25; _W_AST = 15; _W_XG = 20; _W_SOT = 5; _W_KP = 6; _W_DRB = 5; _W_P3RD = 1.5
-_W_TKW = 10; _W_INT = 8; _W_CLR = 3; _W_BLK = 8; _W_REC = 4; _W_DUW = 4
+_W_GOAL = 25; _W_AST = 15; _W_XG = 20; _W_SOT = 5; _W_KP = 6; _W_DRB = 1            # 成功过人 × 成功率% — 自然区分量(1/1→1.0, 7/7→7.0)
+_W_P3RD = 1.5; _W_FLD = 5   # fouls_drawn — 被侵犯（含制造点球）
+_W_TOUCH = 0.03; _W_PASS_ACC = 0.05   # 传球成功率%
+_W_PASS_TOT = 0.02; _W_CROSS = 1      # 传中
+_W_FINISH = 10   # 终结质量 = xGOT - xG (典型范围 -1 ~ +1)
+_W_SHOOT_PERF = 5  # shooting_performance (SportMonks, 典型范围 -2 ~ +2)
+
+_W_TKW = 10; _W_INT = 8; _W_CLR = 3; _W_BLK = 8; _W_REC = 4; _W_DUW = 1    # 赢得对抗 × 成功率%
 _W_SAVES = 15; _W_XGP = 30; _W_GK_CLR = 3; _W_GK_REC = 3
 
-_BONUS_WINNING = 20   # 制胜球
-_BONUS_EQUALIZER = 15 # 扳平球（维持到终场）
-_BONUS_SUPER_SUB = 20 # 替补上场5分钟内进球
+_BONUS_WINNING = 20    # 制胜球
+_BONUS_EQUALIZER = 15  # 扳平球（维持到终场）
+_BONUS_SUPER_SUB = 20  # 替补上场5分钟内进球
+_BONUS_FIRST_GOAL = 10 # 胜方首开记录
+_BONUS_LATE_WINNER = 25 # 终场前5分钟内的制胜绝杀（胜方仅赢1球）
 _MIN_MINUTES = 30
 
 _king_cache: dict = {}  # cache {match_id: computed_king_data}
@@ -1595,14 +1603,32 @@ def _compute_king_scores(raw: RawMatchData) -> dict:
                 last_winner_goal = g.player_name
         return last_winner_goal
 
+    def _get_match_end_minute():
+        """Determine actual match end minute based on periods.
+        If extra time (sort_order 3-4) exists, end = 120.
+        If penalty shootout only, end = 120 (football play ends at extra time).
+        Otherwise, end = 90.
+        """
+        max_sort = 0
+        for pd in raw.periods:
+            if pd.sort_order > max_sort:
+                max_sort = pd.sort_order
+        if max_sort >= 3:
+            return 120  # extra time or penalties
+        return 90
+
     def _find_equalizer_scorer():
-        """Goal that tied the score and it stayed tied to the end."""
+        """
+        Equalizer = tying goal scored in the LAST 5 MINUTES of the match
+         (including extra time), and the score stays tied to the end.
+        """
         if raw.score.home != raw.score.away or raw.score.home == 0:
             return None
         sorted_goals = sorted(goals, key=lambda g: (g.period_id or 0, g.time_elapsed))
         if not sorted_goals:
             return None
-        # Track score progression, find the last goal that made it tied
+        end_minute = _get_match_end_minute()
+        # Track score progression, find the goal that tied it
         h, a = 0, 0
         equalizer = None
         for g in sorted_goals:
@@ -1612,7 +1638,9 @@ def _compute_king_scores(raw: RawMatchData) -> dict:
             else:
                 a += 1
             if h == a:
-                equalizer = g.player_name
+                # Only count if the goal is in the last 5 minutes
+                if g.time_elapsed >= end_minute - 5:
+                    equalizer = g.player_name
         return equalizer
 
     def _find_super_sub_scorers():
@@ -1633,6 +1661,62 @@ def _compute_king_scores(raw: RawMatchData) -> dict:
     winning_scorer = _find_winning_goal_scorer()
     equalizer_scorer = _find_equalizer_scorer()
     super_sub_map = _find_super_sub_scorers()
+
+    def _find_first_goal_scorer():
+        """Winner's first goal scorer (only for non-draw matches)."""
+        if raw.score.home == raw.score.away:
+            return None
+        winner_is_home = raw.score.home > raw.score.away
+        sorted_goals = sorted(goals, key=lambda g: (g.period_id or 0, g.time_elapsed))
+        if not sorted_goals:
+            return None
+        # First goal scored by the eventual winner
+        h, a = 0, 0
+        for g in sorted_goals:
+            is_home = g.team_id == raw.home_team.id
+            if is_home:
+                h += 1
+            else:
+                a += 1
+            if winner_is_home and h > a:
+                return g.player_name
+            elif not winner_is_home and a > h:
+                return g.player_name
+        return None
+
+    def _find_late_winner_scorer():
+        """Last goal that won the game by 1 margin, scored in the final 5 min of normal/extra time."""
+        if raw.score.home == raw.score.away:
+            return None
+        goal_diff = abs(raw.score.home - raw.score.away)
+        if goal_diff != 1:
+            return None
+        # Determine actual match end (90 or 120) based on period structure
+        end_minute = _get_match_end_minute()
+        # Match ended without extra time, find latest goal within 5 min of end
+        sorted_goals = sorted(goals, key=lambda g: (g.period_id or 0, g.time_elapsed))
+        if not sorted_goals:
+            return None
+        # Find the goal that made the winning margin
+        winner_is_home = raw.score.home > raw.score.away
+        h, a = 0, 0
+        last_winner_margin_goal = None
+        for g in sorted_goals:
+            is_home = g.team_id == raw.home_team.id
+            if is_home:
+                h += 1
+            else:
+                a += 1
+            if winner_is_home and h > a and (h - a) == 1:
+                last_winner_margin_goal = g
+            elif not winner_is_home and a > h and (a - h) == 1:
+                last_winner_margin_goal = g
+        if last_winner_margin_goal and last_winner_margin_goal.time_elapsed >= end_minute - 5:
+            return last_winner_margin_goal.player_name
+        return None
+
+    first_goal_scorer = _find_first_goal_scorer()
+    late_winner_scorer = _find_late_winner_scorer()
 
     for pp, tn in [(raw.home_players, raw.home_team.name), (raw.away_players, raw.away_team.name)]:
         players = []
@@ -1667,8 +1751,19 @@ def _compute_king_scores(raw: RawMatchData) -> dict:
             xg = p.xg or 0
             sot = p.shots_on or 0
             kp = p.passes_key or 0
-            drb = p.dribbles_success or 0
+            drb_suc = p.dribbles_success or 0
+            drb_att = p.dribbles_attempts or 0
+            drb_rate = (drb_suc / drb_att * 100) if drb_att > 0 else 0  # 过人成功率%
             p3rd = p.passes_final_third or 0
+            fld = p.fouls_drawn or 0
+            # 新增 9 项
+            tch = p.touches or 0
+            pass_acc = p.passes_accuracy or 0     # 已有的百分比值
+            pass_tot = p.passes_total or 0
+            crs = p.crosses or 0
+            xgot = p.xgot or 0
+            finish = (xgot - xg) if (xgot is not None and xg is not None) else 0  # 终结质量
+            shoot_perf = p.shooting_performance or 0
 
             tk = _tkl_won(p)
             inter = p.tackles_interceptions or 0
@@ -1676,21 +1771,31 @@ def _compute_king_scores(raw: RawMatchData) -> dict:
             blk = p.blocked_shots or 0
             rec = p.ball_recoveries or 0
             duw = p.duels_won or 0
+            dut = p.duels_total or 0
+            duw_rate = (duw / dut * 100) if dut > 0 else 0  # 对抗成功率%
 
             min_factor = min(mins / 90, 1.0)
 
-            raw_att = goals_n * _W_GOAL + ast * _W_AST + xg * _W_XG + sot * _W_SOT + kp * _W_KP + drb * _W_DRB + p3rd * _W_P3RD
+            raw_att = (goals_n * _W_GOAL + ast * _W_AST + xg * _W_XG + sot * _W_SOT
+                       + kp * _W_KP + drb_suc * (drb_rate / 100) * _W_DRB + p3rd * _W_P3RD + fld * _W_FLD
+                       + tch * _W_TOUCH + pass_acc * _W_PASS_ACC + pass_tot * _W_PASS_TOT
+                       + crs * _W_CROSS + finish * _W_FINISH + shoot_perf * _W_SHOOT_PERF)
             attack_score = raw_att * min_factor
 
-            # Bonus: winning / equalizer / super sub (only to attack score)
+            # Bonus: winning / equalizer / super sub / first goal / late winner
             if p.name == winning_scorer:
                 attack_score += _BONUS_WINNING
             if p.name == equalizer_scorer:
                 attack_score += _BONUS_EQUALIZER
             if p.name in super_sub_map:
                 attack_score += _BONUS_SUPER_SUB
+            if p.name == first_goal_scorer:
+                attack_score += _BONUS_FIRST_GOAL
+            if p.name == late_winner_scorer:
+                attack_score += _BONUS_LATE_WINNER
 
-            raw_def = tk * _W_TKW + inter * _W_INT + clr * _W_CLR + blk * _W_BLK + rec * _W_REC + duw * _W_DUW
+            raw_def = (tk * _W_TKW + inter * _W_INT + clr * _W_CLR + blk * _W_BLK + rec * _W_REC
+                       + duw * (duw_rate / 100) * _W_DUW)
             defense_score = raw_def * min_factor
 
             attack_score = round(attack_score, 1)
@@ -1802,6 +1907,54 @@ def signal_balanced_king(raw: RawMatchData, computed: dict = None) -> SignalResu
     )
 
 
+# ----- I. PPDA 压迫强度 -----
+
+def signal_pressing_intensity(raw: RawMatchData, computed: dict = None) -> SignalResult:
+    """基于PPDA指标检测压迫强度差异。
+    PPDA越低表示压迫越强（对手每次传球前遭遇更多防守动作）。
+    """
+    if computed is None:
+        return SignalResult("pressing_intensity", "structural", 0.0)
+
+    hp = getattr(computed, "home_ppda", 0) or 0
+    ap = getattr(computed, "away_ppda", 0) or 0
+    if hp <= 0 or ap <= 0:
+        return SignalResult("pressing_intensity", "structural", 0.0)
+
+    # Determine the more pressing team
+    if hp < ap:
+        press_team = raw.home_team.name
+        opp_team = raw.away_team.name
+        press_ppda = hp
+        opp_ppda = ap
+    else:
+        press_team = raw.away_team.name
+        opp_team = raw.home_team.name
+        press_ppda = ap
+        opp_ppda = hp
+
+    ratio = opp_ppda / max(press_ppda, 0.1)
+
+    # Strength: ratio > 2 = strong press, or single team PPDA < 6
+    if ratio >= 2.0 or press_ppda < 6:
+        strength = _clip(0.3 + 0.15 * ratio)
+        if press_ppda < 5:
+            hint = f"{press_team} 采用**高压迫**战术（PPDA={press_ppda}），对手{opp_team}每次传球前都要面对高强度逼抢。"
+        elif press_ppda < 8:
+            hint = f"{press_team} 压迫明显强于{opp_team}（PPDA {press_ppda} vs {opp_ppda}），主动在中前场施压。"
+        else:
+            hint = f"{press_team} 压迫强度显著领先{opp_team}（PPDA比 {ratio:.1f}:1）。"
+        return SignalResult(
+            name="pressing_intensity",
+            category="structural",
+            strength=strength,
+            evidence={"home_ppda": hp, "away_ppda": ap, "ratio": round(ratio, 1)},
+            narrative_hint=hint,
+        )
+
+    return SignalResult("pressing_intensity", "structural", 0.0)
+
+
 # ============================================================
 # Main detector — runs all
 # ============================================================
@@ -1849,6 +2002,8 @@ ALL_DETECTORS = [
     ("offensive_king", signal_offensive_king),
     ("defensive_king", signal_defensive_king),
     ("balanced_king", signal_balanced_king),
+    # J. PPDA 压迫强度
+    ("pressing_intensity", signal_pressing_intensity),
 ]
 
 TRENDS_DETECTORS = [

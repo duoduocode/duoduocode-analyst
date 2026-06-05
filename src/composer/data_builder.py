@@ -5,8 +5,8 @@ from typing import Optional
 
 from src.collector.api_client import RawMatchData
 from src.composer.prompt_loader import PromptLoader
-from src.engine.metrics import ComputedData, _stat
-from src.engine.signals import SignalResult
+from src.engine.metrics import ComputedData, _stat, interpret_ppda
+from src.engine.signals import SignalResult, _compute_king_scores
 from src.engine.trends import TrendAnalysis
 
 CATEGORY_CN = {
@@ -394,6 +394,12 @@ def build_narrative(
         "home_coach": home_coach,
         "away_coach": away_coach,
         "coaches": bool(raw.home_coach or raw.away_coach),
+        # PPDA (Passes Per Defensive Action)
+        "home_ppda": computed.home_ppda,
+        "away_ppda": computed.away_ppda,
+        "home_ppda_label": interpret_ppda(computed.home_ppda),
+        "away_ppda_label": interpret_ppda(computed.away_ppda),
+        "ppda_segments": computed.ppda_segments,
     }
 
     return prompt_loader.render("narrative", **args)
@@ -509,7 +515,7 @@ def build_narrative_v3(
         )
     period_stats_text = "\n".join(per_lines)
 
-    # Player stats
+    # Player stats (basic raw list kept for reference)
     pl_lines = []
     for team_label, players in [("主队", raw.home_players), ("客队", raw.away_players)]:
         pl_lines.append(f"\n{team_label}:")
@@ -521,6 +527,73 @@ def build_narrative_v3(
                 f"射{p.shots_total}/{p.shots_on} 传{p.passes_total} {xg_val}"
             )
     player_stats_text = "\n".join(pl_lines)
+
+    # ── Key Players section for narrative ──
+    king_data = _compute_king_scores(raw)
+    home_king = king_data.get(raw.home_team.name, {})
+    away_king = king_data.get(raw.away_team.name, {})
+
+    # 1. Official MVP (man_of_match)
+    mom_name = ""
+    mom_team = ""
+    mom_stats = []
+    for p in raw.home_players + raw.away_players:
+        if p.man_of_match:
+            team = raw.home_team.name if p in raw.home_players else raw.away_team.name
+            mom_name = p.name
+            mom_team = team
+            mom_stats = [
+                f"评分:{p.rating or '-'}", f"位置:{p.position}",
+                f"出场:{p.minutes_played}'",
+                f"进球:{p.goals}", f"助攻:{p.assists}",
+                f"射门:{p.shots_total}/{p.shots_on}",
+                f"传球:{p.passes_total}(成功率{p.passes_accuracy:.0f}%)",
+                f"关键传球:{p.passes_key}", f"过人:{p.dribbles_success}/{p.dribbles_attempts}",
+                f"抢断:{p.tackles_total}", f"拦截:{p.tackles_interceptions}",
+                f"对抗赢:{p.duels_won}/{p.duels_total}", f"解围:{p.clearances}",
+                f"封堵:{p.blocked_shots}", f"回收:{p.ball_recoveries}",
+                f"被侵犯:{p.fouls_drawn}", f"xG:{p.xg:.3f}", f"xGOT:{p.xgot:.3f}",
+            ]
+            break
+
+    key_lines = []
+    key_lines.append("== 关键球员 ==")
+    key_lines.append("")
+    if mom_name:
+        key_lines.append(f"--- 一、本场官方MVP ---")
+        key_lines.append(f"{mom_name} ({mom_team}) — 数据: {' | '.join(mom_stats)}")
+    else:
+        key_lines.append(f"--- 一、本场官方MVP ---")
+        key_lines.append("本场无官方MVP记录")
+
+    # 2. Contribution comparison: attack/defense/balanced top 3 per team
+    key_lines.append("")
+    key_lines.append("--- 二、双方贡献对比 ---")
+
+    for cat_key, cat_name in [("attack", "进攻贡献"), ("defense", "防守贡献"), ("balanced", "比赛影响力")]:
+        key_lines.append(f"\n{cat_name} Top 3:")
+        for tn, td in [(raw.home_team.name, home_king), (raw.away_team.name, away_king)]:
+            outfield = [p for p in td.get("players", []) if p["pos"] != "G"]
+            top3 = sorted(outfield, key=lambda x: x[cat_key], reverse=True)[:3]
+            key_lines.append(f"  {tn}:")
+            for i, p in enumerate(top3, 1):
+                extras = ""
+                if cat_key == "balanced":
+                    extras = f"(攻{p['attack']:.1f}/防{p['defense']:.1f})"
+                key_lines.append(f"    {i}. {p['name']}({p['pos']}) {p['mins']}' 评分{p['rating']} {cat_key}={p[cat_key]:.1f} {extras}")
+
+    # 3. Best GK per team
+    key_lines.append("")
+    key_lines.append("--- 三、本场最佳门将 ---")
+    for tn, td in [(raw.home_team.name, home_king), (raw.away_team.name, away_king)]:
+        gks = [p for p in td.get("players", []) if p["pos"] == "G"]
+        if gks:
+            gk = max(gks, key=lambda x: x["defense"])
+            key_lines.append(f"  {tn}: {gk['name']} 评分{gk['rating']} 防守分{gk['defense']:.1f}")
+        else:
+            key_lines.append(f"  {tn}: 无门将数据")
+
+    key_players_text = "\n".join(key_lines)
 
     args = {
         "league": league_name,
@@ -560,6 +633,11 @@ def build_narrative_v3(
         "signals_text": signals_text,
         "period_stats_text": period_stats_text,
         "player_stats_text": player_stats_text,
+        "key_players_text": key_players_text,
+        "home_ppda": computed.home_ppda,
+        "away_ppda": computed.away_ppda,
+        "home_ppda_label": interpret_ppda(computed.home_ppda),
+        "away_ppda_label": interpret_ppda(computed.away_ppda),
     }
 
     return prompt_loader.render("narrative_v3", **args)

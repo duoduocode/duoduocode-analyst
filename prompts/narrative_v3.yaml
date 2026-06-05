@@ -14,7 +14,6 @@ system: |
   - 每段以【标题】开头，正文紧跟其后，共六段
   - 不要用"续命""苟活""侥幸"等贬义词描述胜利方，点球获胜叫"点球决胜"
   - 第二段换人分析要结合球员角色和比赛实际
-  - 人物志段不止讲高分球员，评分悖论也要指出
 
 user: |
   请基于以下数据为 {{ home_name }} vs {{ away_name }} 撰写六段比赛分析报告。
@@ -30,6 +29,9 @@ user: |
   == 核心数据面板 ==
   {{ home_name }}：控球 {{ home_possession }}%、射门 {{ home_shots }}/{{ home_sot }}、xG {{ home_xg }}、传球 {{ home_passes }}（成功率 {{ home_pass_pct }}%）、角球 {{ home_corners }}、黄牌 {{ home_yellows }}
   {{ away_name }}：控球 {{ away_possession }}%、射门 {{ away_shots }}/{{ away_sot }}、xG {{ away_xg }}、传球 {{ away_passes }}（成功率 {{ away_pass_pct }}%）、角球 {{ away_corners }}、黄牌 {{ away_yellows }}
+  {% if home_ppda and home_ppda > 0 %}
+  压迫强度 PPDA：{{ home_name }} {{ home_ppda }}（{{ home_ppda_label }}）| {{ away_name }} {{ away_ppda }}（{{ away_ppda_label }}）
+  {% endif %}
 
   == 硬事实数据 ==
   {{ hard_facts_text }}
@@ -49,5 +51,15 @@ user: |
   == 球员数据 ==
   {{ player_stats_text }}
 
+  == 关键球员 ==
+  {{ key_players_text }}
+
   请用【标题】标记的六段格式输出比赛分析报告：
-  【封面导语】【比赛节奏】【效率悖论】【战术解码】【人物志】【数据深潜】
+  【封面导语】【比赛节奏】【效率悖论】【战术解码】【关键球员】【数据深潜】
+
+  第五段【关键球员】写作要求：
+  - 不要使用"英雄""罪人""隐形人"等标签化词汇
+  - 基于上方"关键球员"数据区的官方MVP信息、贡献排名、门将数据展开叙述
+  - 先介绍本场官方MVP（如果有），结合他的雷达数据说明为什么官方选了这个人
+  - 再分别点评双方的进攻贡献者、防守贡献者、比赛影响力均衡者（每类各提1-2人）
+  - 最后点评双方门将表现，用防守分和xGOT数据支撑

@@ -207,8 +207,8 @@ def _generate_kings_html(raw: RawMatchData) -> str:
 
     md = "## 球员贡献排行榜\n\n"
     md += (
-        "> 进攻分 = (进球x25 + 助攻x15 + xGx20 + 射正x5 + 关键传球x6 + 过人x5 + 三区传球x1.5) x 分钟系数 + 事件加成\n"
-        "> 防守分 = (成功抢断x10 + 拦截x8 + 解围x3 + 封堵x8 + 球权回收x4 + 赢得对抗x4) x 分钟系数\n"
+        "> 进攻分 = (进球x25 + 助攻x15 + xGx20 + 射正x5 + 关键传球x6 + 过人(成功x成功率)x1 + 三区传x1.5 + 被侵犯x5 + 触球x0.03 + 传球成率x0.05 + 传球总数x0.02 + 传中x1 + 终结质量x10 + 射门表现x5) x 分钟系数 + 事件加成\n"
+        "> 防守分 = (成功抢断x10 + 拦截x8 + 解围x3 + 封堵x8 + 球权回收x4 + 对抗(赢x成功率)x1) x 分钟系数\n"
         "> 均衡分 = 2 x 进攻分 x 防守分 / (进攻分 + 防守分)，门将不参与排名\n\n"
     )
 
@@ -317,7 +317,11 @@ def build_report(
     away_rec = int(float(_stat(aws, "Ball Recoveries", default=0))) or sum(
         p.ball_recoveries for p in raw.away_players
     )
-    md += f"| 球权回收 | {home_rec} | {away_rec} |\n\n"
+    md += f"| 球权回收 | {home_rec} | {away_rec} |\n"
+    if computed.home_ppda > 0:
+        from src.engine.metrics import interpret_ppda as _ippda
+        md += f"| PPDA 压迫强度 | {computed.home_ppda}（{_ippda(computed.home_ppda)}）| {computed.away_ppda}（{_ippda(computed.away_ppda)}）|\n"
+    md += "\n"
 
     if computed:
         md += f"| 自创指标 | {raw.home_team.name} | {raw.away_team.name} |\n"
@@ -332,6 +336,16 @@ def build_report(
                 f"({ld.get('interpretation', '')}) | — |\n"
             )
         md += "\n"
+
+    # ── 2.5. PPDA压迫强度分时段趋势 ──
+    if computed and hasattr(computed, "ppda_segments") and computed.ppda_segments:
+        md += "## PPDA 压迫强度趋势\n\n"
+        md += "> PPDA = 对手传球数 / (抢断+拦截+犯规)，数值越低压迫越强\n\n"
+        md += f"| 时段 | {raw.home_team.name} PPDA | {raw.away_team.name} PPDA |\n"
+        md += "|:---:|:---:|:---:|\n"
+        for seg in computed.ppda_segments:
+            md += f"| {seg['label']} | {seg['home_ppda']} | {seg['away_ppda']} |\n"
+        md += "\n---\n\n"
 
     # ── 3. 比赛弧线（phase timeline）──
     arc_html = _generate_phases_arc_html(raw, signals)
@@ -372,10 +386,10 @@ def build_report(
             md += f"![传球网络 - {raw.away_team.name}]({image_paths['pass_away']})\n\n"
         md += "---\n\n"
 
-    # ── 8. 球员特写 ──
-    players_section = sections.get("球员特写", "")
+    # ── 8. 关键球员 ──
+    players_section = sections.get("关键球员", "") or sections.get("球员特写", "")
     if players_section:
-        md += "## 球员特写\n\n"
+        md += "## 关键球员\n\n"
         md += f"{players_section}\n\n"
 
         if image_paths.get("radar_hidden"):
@@ -632,10 +646,26 @@ def build_report_v3_html(
         ("角球", str(int(float(_stat(hs,"Corner Kicks")))), str(int(float(_stat(aws,"Corner Kicks"))))),
         ("抢断/犯规/黄牌", f'{int(float(_stat(hs,"Tackles")))}/{int(float(_stat(hs,"Fouls")))}/{int(float(_stat(hs,"Yellow Cards")))}', f'{int(float(_stat(aws,"Tackles")))}/{int(float(_stat(aws,"Fouls")))}/{int(float(_stat(aws,"Yellow Cards")))}'),
     ]
+    # PPDA — 压迫强度
+    if computed and getattr(computed, "home_ppda", 0) > 0:
+        from src.engine.metrics import interpret_ppda as _ippda
+        stats_pairs.append(
+            ("PPDA 压迫强度", f'{computed.home_ppda}（{_ippda(computed.home_ppda)}）', f'{computed.away_ppda}（{_ippda(computed.away_ppda)}）')
+        )
     H.append('<div class="stat-grid">')
     for label, hv, av in stats_pairs:
         H.append(f'<div class="stat-row"><span class="stat-label">{label}</span><span class="stat-vals"><span class="stat-home">{hv}</span> &nbsp; <span class="stat-away">{av}</span></span></div>')
     H.append('</div>')
+
+    # ── PPDA 分时段压迫强度趋势 ──
+    if computed and hasattr(computed, "ppda_segments") and computed.ppda_segments:
+        H.append('<h3 style="color:#e0e8f0;margin:16px 0 8px">PPDA 压迫强度趋势</h3>')
+        H.append('<p style="color:#8ab4d6;font-size:12px;margin-bottom:8px">PPDA = 对手传球数 / (抢断+拦截+犯规)，数值越低压迫越强</p>')
+        H.append('<table style="width:100%;border-collapse:collapse;margin-bottom:12px">')
+        H.append(f'<tr style="background:#1a3a4a"><th>时段</th><th>{home_name} PPDA</th><th>{away_name} PPDA</th></tr>')
+        for seg in computed.ppda_segments:
+            H.append(f'<tr style="background:#162a38;text-align:center"><td>{seg["label"]}</td><td>{seg["home_ppda"]}</td><td>{seg["away_ppda"]}</td></tr>')
+        H.append('</table>')
 
     # ── 数据洞察摘要 (enriched) ──
     if hard_facts:
@@ -693,20 +723,33 @@ def build_report_v3_html(
         if image_paths.get("pass_away"):
             H.append(f'<p style="text-align:center"><img src="{image_paths["pass_away"]}" alt="传球网络-客队"></p>')
 
-    # ── Section 5: 人物志 + 进攻/防守/均衡之王 ──
-    characters = sections.get("人物志", "")
+    # ── Section 5: 关键球员 + 贡献排名表 ──
+    characters = sections.get("关键球员", "")
     if characters:
-        H.append('<h2>🎭 人物志</h2>')
+        H.append('<h2>⭐ 关键球员</h2>')
         H.append(f'<p>{characters}</p>')
 
-    # Kings table (replaces radar)
-    H.append('<h3>进攻/防守/均衡之王 Top 3</h3>')
+    # ── Official MVP highlight ──
+    mom_found = []
+    for p in raw.home_players + raw.away_players:
+        if p.man_of_match:
+            team = home_name if p in raw.home_players else away_name
+            mom_found.append((p, team))
+    if mom_found:
+        p, team = mom_found[0]
+        H.append('<div class="insight-box" style="border-left-color:#f1c40f">')
+        H.append(f'<h4 style="color:#f1c40f;margin:0 0 6px">🏅 官方全场最佳: {p.name} ({team})</h4>')
+        H.append(f'<p style="font-size:13px;margin:0">评分 {p.rating} | {p.position} | {p.minutes_played}\' | 进球{p.goals} 助攻{p.assists} | 射门{p.shots_total}/{p.shots_on} | 关键传球{p.passes_key} | 过人{p.dribbles_success}/{p.dribbles_attempts} | 抢断{p.tackles_total} 拦截{p.tackles_interceptions} | xG {p.xg:.3f} | xGOT {p.xgot:.3f}</p>')
+        H.append('</div>')
+
+    # Kings comparison table
+    H.append('<h3>双方贡献对比 Top 3</h3>')
     king_data = _compute_king_scores(raw)
 
     categories = [
-        ("攻击之王", "attack", "进攻分"),
-        ("防守之王", "defense", "防守分"),
-        ("均衡之王", "balanced", "均衡分"),
+        ("进攻贡献", "attack", "进攻分"),
+        ("防守贡献", "defense", "防守分"),
+        ("比赛影响力", "balanced", "均衡分"),
     ]
     for cat_label, key, col_label in categories:
         H.append(f'<h4 style="color:#2ecc71;text-align:center;margin-top:12px">{cat_label}</h4>')
@@ -717,7 +760,7 @@ def build_report_v3_html(
             top3 = sorted(outfield, key=lambda x: x[key], reverse=True)[:3]
             if not top3:
                 continue
-            H.append(f'<div><h4 style="color:{"#2ecc71" if team_name == home_name else "#3498db"}">{team_name}</h4>')
+            H.append(f'<div><h4 style="margin:6px 0;color:{"#2ecc71" if team_name == home_name else "#3498db"}">{team_name}</h4>')
             if key == "balanced":
                 H.append('<table><tr><th>#</th><th>球员</th><th>位</th><th>评分</th><th>出场</th><th>进攻分</th><th>防守分</th><th>均衡分</th></tr>')
                 for i, p in enumerate(top3, 1):
@@ -728,6 +771,23 @@ def build_report_v3_html(
                     H.append(f'<tr><td>{i}</td><td>{p["name"]}</td><td>{p["pos"]}</td><td>{p["rating"]}</td><td>{p["mins"]}\'</td><td style="color:#2ecc71;font-weight:bold">{p[key]:.1f}</td></tr>')
             H.append('</table></div>')
         H.append('</div>')
+
+    # ── Best GK per team ──
+    H.append('<h3>本场最佳门将</h3>')
+    H.append('<div style="display:flex;gap:20px;flex-wrap:wrap">')
+    for team_name in [home_name, away_name]:
+        td = king_data.get(team_name, {})
+        gks = [p for p in td.get("players", []) if p["pos"] == "G"]
+        if gks:
+            gk = max(gks, key=lambda x: x["defense"])
+            color = "#2ecc71" if team_name == home_name else "#3498db"
+            H.append(f'<div style="flex:1;min-width:250px;background:#162a38;border-radius:8px;padding:12px;border-left:4px solid {color}">')
+            H.append(f'<h4 style="color:{color};margin:0 0 8px">{team_name}</h4>')
+            H.append(f'<p style="margin:0;font-size:15px"><b>{gk["name"]}</b> 评分 {gk["rating"]} 防守分 {gk["defense"]:.1f}</p>')
+            H.append('</div>')
+        else:
+            H.append(f'<div style="flex:1;min-width:250px;background:#162a38;border-radius:8px;padding:12px"><p style="margin:0">{team_name}: 无门将数据</p></div>')
+    H.append('</div>')
 
     # Sub impacts chart
     if image_paths.get("subs"):
@@ -781,11 +841,74 @@ def build_report_v3_html(
 
 
 def _save_md_report(md_path, sections, image_paths, raw, home_name, away_name, home_xg, away_xg, hs, aws, hard_facts):
-    """Save a simple Markdown version for reference."""
+    """Save a comprehensive Markdown report with data tables."""
     md = f"# {home_name} {raw.score.home} - {raw.score.away} {away_name}\n\n"
-    for sec in ["封面导语", "比赛节奏", "效率悖论", "战术解码", "人物志", "数据深潜"]:
+
+    for sec in ["封面导语", "比赛节奏", "效率悖论", "战术解码", "关键球员", "人物志", "数据深潜"]:
         content = sections.get(sec, "")
-        if content:
-            md += f"## {sec}\n\n{content}\n\n"
+        if not content:
+            continue
+        md += f"## {sec}\n\n{content}\n\n"
+
+        # After 关键球员 section, append contribution tables
+        if sec == "关键球员":
+            king_data = _compute_king_scores(raw)
+            home_king = king_data.get(home_name, {})
+            away_king = king_data.get(away_name, {})
+
+            # ── Official MVP ──
+            mom_name = ""
+            mom_team = ""
+            for p in raw.home_players + raw.away_players:
+                if p.man_of_match:
+                    mom_team = home_name if p in raw.home_players else away_name
+                    mom_name = p.name
+                    md += f"> 🏅 **官方全场最佳**: {p.name} ({mom_team}) — "
+                    md += f"评分 {p.rating or '-'} | {p.position} | {p.minutes_played}' | "
+                    md += f"进球{p.goals} 助攻{p.assists} | 射门{p.shots_total}/{p.shots_on} | "
+                    md += f"关键传球{p.passes_key} | 过人{p.dribbles_success}/{p.dribbles_attempts} | "
+                    md += f"抢断{p.tackles_total} 拦截{p.tackles_interceptions} | "
+                    md += f"对抗 {p.duels_won}/{p.duels_total} | xG {p.xg:.3f} | xGOT {p.xgot:.3f}\n"
+                    break
+
+            md += "\n"
+
+            # ── 贡献对比表 ──
+            categories = [
+                ("进攻贡献", "attack", "进攻分"),
+                ("防守贡献", "defense", "防守分"),
+                ("比赛影响力（攻防均衡）", "balanced", "均衡分"),
+            ]
+            for cat_name, key, col_label in categories:
+                md += f"### {cat_name} Top 3\n\n"
+                for tn, td in [(home_name, home_king), (away_name, away_king)]:
+                    outfield = [p for p in td.get("players", []) if p["pos"] != "G"]
+                    top3 = sorted(outfield, key=lambda x: x[key], reverse=True)[:3]
+                    if not top3:
+                        continue
+                    md += f"**{tn}**\n\n"
+                    if key == "balanced":
+                        md += "| # | 球员 | 位 | 评分 | 出场 | 进攻分 | 防守分 | 均衡分 |\n"
+                        md += "|:---:|------|:---:|:---:|:---:|:---:|:---:|:---:|\n"
+                        for i, p in enumerate(top3, 1):
+                            md += f"| {i} | {p['name']} | {p['pos']} | {p['rating']} | {p['mins']}' | {p['attack']:.1f} | {p['defense']:.1f} | **{p['balanced']:.1f}** |\n"
+                    else:
+                        md += f"| # | 球员 | 位 | 评分 | 出场 | {col_label} |\n"
+                        md += "|:---:|------|:---:|:---:|:---:|:---:|\n"
+                        for i, p in enumerate(top3, 1):
+                            md += f"| {i} | {p['name']} | {p['pos']} | {p['rating']} | {p['mins']}' | **{p[key]:.1f}** |\n"
+                    md += "\n"
+
+            # ── 最佳门将 ──
+            md += "### 本场最佳门将\n\n"
+            for tn, td in [(home_name, home_king), (away_name, away_king)]:
+                gks = [p for p in td.get("players", []) if p["pos"] == "G"]
+                if gks:
+                    gk = max(gks, key=lambda x: x["defense"])
+                    md += f"- **{tn}**: {gk['name']} 评分 {gk['rating']} 防守分 **{gk['defense']:.1f}**\n"
+                else:
+                    md += f"- **{tn}**: 无门将数据\n"
+            md += "\n"
+
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md)

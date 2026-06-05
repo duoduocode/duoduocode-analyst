@@ -101,7 +101,7 @@
 | 59 | SUBSTITUTIONS | 换人次数 | ✅ | — |
 | 79 | ASSISTS | 助攻 | ✅ | — |
 | 87 | INJURIES | 伤病 | ✅ | — |
-| 88 | GOALS_CONCEDED | 失球 | ✅ | — |
+| 88 | GOALS_CONCEDED | 球队失球(在场时) | ✅ | 非门将专属,所有场上球员均有值=在场期间球队丢球数 |
 | 72 | FIRST_SUBSTITUTION | 第一次换人时间 | ⚠️ | API 返回但代码未采集 |
 | 61 | BEATS | 被突破次数 | ⚠️ | API 返回但代码未采集 |
 
@@ -222,7 +222,7 @@
 | 57 | SAVES | 扑救 | ✅ | `saves` |
 | 104 | SAVES_INSIDE_BOX | 禁区内扑救 | ⚠️ | 代码未采集 |
 | 103 | PUNCHES | 门将击球 | ⚠️ | 代码未采集 |
-| 88 | GOALS_CONCEDED | 失球 | ⚠️ | 代码未采集 |
+| 88 | GOALS_CONCEDED | 球队失球(在场时) | ⚠️ | 代码未采集 |
 | 1535 | GOALKEEPER_GOALS_CONCEDED | 门将失球 | ⚠️ | 代码未采集 |
 | 584 | GOOD_HIGH_CLAIM | 成功摘高球 | ⚠️ | 代码未采集 |
 

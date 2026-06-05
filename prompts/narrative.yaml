@@ -31,6 +31,12 @@ user: |
   | 传球成功率 | {{ home_pass_acc }}% | {{ away_pass_acc }}% |
   | 角球 | {{ home_corners }} | {{ away_corners }} |
   | 抢断 / 犯规 / 黄牌 | {{ home_tackles }} / {{ home_fouls }} / {{ home_yellows }} | {{ away_tackles }} / {{ away_fouls }} / {{ away_yellows }} |
+  {% if home_ppda and home_ppda > 0 %}
+  | PPDA 压迫强度 | {{ home_ppda }}（{{ home_ppda_label }}）| {{ away_ppda }}（{{ away_ppda_label }}）|
+  {% if ppda_segments %}
+  PPDA分时段变化：{% for seg in ppda_segments %}{{ seg.label }} 主{{ seg.home_ppda }} vs 客{{ seg.away_ppda }} | {% endfor %}
+  {% endif %}
+  {% endif %}
 
   ## 比赛弧线（按时间线组织）
   {% for phase in phases %}
