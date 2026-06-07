@@ -58,6 +58,20 @@ PLAYER_STAT_MAP: dict[int, str] = {
     27273: "possession_lost",    27271: "ball_recoveries",
     5304: "xg",               5305: "xgot",
     9685: "shooting_performance",
+    # 2026-06-06: 补全遗漏字段 (ref: SportMonks统计指标全集.md)
+    110: "dribbled_past",        # 被过人
+    107: "aerials_won",          # 赢得空中对抗
+    27274: "aerials",            # 空中对抗总数
+    27275: "aerials_won_pct",    # 空中对抗成功率
+    115: "penalties_won",        # 赢得点球
+    116: "passes_accurate",      # 准确传球次数
+    9706: "chances_created",     # 创造机会
+    580: "big_chances_created",  # 创造绝佳机会
+    64: "hit_woodwork",          # 中框
+    99: "crosses_accurate",      # 精准传中
+    27276: "duels_won_pct",      # 对抗成功率
+    111: "penalties_scored",     # 点球进球
+    27272: "back_passes",        # 回传
 }
 
 
@@ -137,6 +151,20 @@ class PlayerStats:
     blocked_shots: int = 0
     clearances: int = 0
     touches: int = 0
+    # 2026-06-07: 补全遗漏字段
+    dribbled_past: int = 0
+    aerials_won: int = 0
+    aerials: int = 0
+    aerials_won_pct: float = 0.0
+    penalties_won: int = 0
+    penalties_scored: int = 0
+    chances_created: int = 0
+    big_chances_created: int = 0
+    hit_woodwork: int = 0
+    crosses_accurate: int = 0
+    passes_accurate: int = 0
+    duels_won_pct: float = 0.0
+    back_passes: int = 0
 
 
 @dataclass
@@ -231,13 +259,15 @@ class SportMonksClient:
             raw_token = os.environ.get(env_key, "")
         self.api_token = os.environ.get("SPORTMONKS_API_TOKEN", raw_token)
         self.base_url = config.get("base_url", "https://api.sportmonks.com/v3/football")
+        self._session = requests.Session()
+        self._session.trust_env = False
 
     def _get(self, endpoint: str, params: dict = None) -> dict:
         url = f"{self.base_url}{endpoint}"
         if params is None:
             params = {}
         params["api_token"] = self.api_token
-        resp = requests.get(url, params=params, timeout=60)
+        resp = self._session.get(url, params=params, timeout=60)
         resp.raise_for_status()
         data = resp.json()
         if data.get("error"):
@@ -409,6 +439,20 @@ def _parse_player_from_lineup(lu: dict) -> PlayerStats:
         blocked_shots=_safe_int(parsed.get("blocked_shots")),
         clearances=_safe_int(parsed.get("clearances")),
         touches=_safe_int(parsed.get("touches")),
+        # 2026-06-07: 补全遗漏字段
+        dribbled_past=_safe_int(parsed.get("dribbled_past")),
+        aerials_won=_safe_int(parsed.get("aerials_won")),
+        aerials=_safe_int(parsed.get("aerials")),
+        aerials_won_pct=_safe_float(parsed.get("aerials_won_pct")),
+        penalties_won=_safe_int(parsed.get("penalties_won")),
+        penalties_scored=_safe_int(parsed.get("penalties_scored")),
+        chances_created=_safe_int(parsed.get("chances_created")),
+        big_chances_created=_safe_int(parsed.get("big_chances_created")),
+        hit_woodwork=_safe_int(parsed.get("hit_woodwork")),
+        crosses_accurate=_safe_int(parsed.get("crosses_accurate")),
+        passes_accurate=_safe_int(parsed.get("passes_accurate")),
+        duels_won_pct=_safe_float(parsed.get("duels_won_pct")),
+        back_passes=_safe_int(parsed.get("back_passes")),
     )
 
 

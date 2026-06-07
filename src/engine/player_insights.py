@@ -5,18 +5,19 @@ Each detector takes ALL player stats (up to 47 type_ids) and event bonuses,
 outputs scored rankings with evidence data.
 
 Detectors:
-  D1  推进价值 (Progression Value)
-  D2  压迫与反压迫 (Press & Counter-press)
-  D3  无球价值/Gravity (Off-ball Value)
-  D4  节奏控制/节拍器 (Tempo Control)
-  D5  双向负荷 (Two-way Load)
-  D6  时机价值 (Timing Value)
-  D7  效率与产量背离 (Efficiency vs Volume)
-  D8  角色偏离度 (Role Deviation)
-  D9  连接器 (Connector)
-  D10 终结质量 (Finishing Quality)
-  D11 xG背离度 (xG Deviation)
-  D12 纯终结者 (Pure Finisher)
+  D1  推进价值 (Progression Value)      标签: 推进引擎
+  D2  防守扫荡 (Defensive Sweeping)      标签: 防守铁闸
+  D3  对抗之王 (Duel King)              标签: 缠斗高手
+  D4  节奏控制/节拍器 (Tempo Control)    标签: 节拍器
+  D5  双向负荷 (Two-way Load)           标签: 全能战士
+  D6  时机价值 (Timing Value)           标签: 关键先生
+  D7  效率与产量背离 (Efficiency vs Volume) 标签: 高效输出
+  D8  角色偏离度 (Role Deviation)        标签: 多面手
+  D9  连接器 (Connector)                标签: 串联枢纽
+  D10 终结质量 (Finishing Quality)       标签: 射门质量高
+  D11 xG背离度 (xG Deviation)           标签: 超预期终结
+  D12 纯终结者 (Pure Finisher)           标签: 头号火力点
+  D13 终结能力 (Finishing Prowess)       标签: 终结者
 """
 
 from __future__ import annotations
@@ -98,10 +99,11 @@ class EventBonuses:
     first_goal: bool = False            # 胜方首开记录
     super_sub: bool = False             # 替补出场5分钟内进球/助攻
     scored_penalty: bool = False        # 点球进球
+    won_penalty: bool = False           # 制造点球
 
     def any(self) -> bool:
         return any([self.winning_goal, self.equalizer, self.late_winner,
-                     self.first_goal, self.super_sub, self.scored_penalty])
+                     self.first_goal, self.super_sub, self.scored_penalty, self.won_penalty])
 
     def as_bonus(self) -> float:
         score = 0.0
@@ -111,6 +113,7 @@ class EventBonuses:
         if self.first_goal: score += 2.0
         if self.super_sub: score += 2.5
         if self.scored_penalty: score += 0.5
+        if self.won_penalty: score += 2.0
         return score
 
     def labels(self) -> list[str]:
@@ -121,6 +124,7 @@ class EventBonuses:
         if self.first_goal: result.append("首开记录")
         if self.super_sub: result.append("超级替补")
         if self.scored_penalty: result.append("点球进球")
+        if self.won_penalty: result.append("制造点球")
         return result
 
 
@@ -180,13 +184,12 @@ D1_METRICS = {
     "成功过人":        (109, 0.8),
     "传中":           (98, 0.6),
     "精准传中":        (99, 0.4),
-    "长传成功":        (123, 0.5),
     "关键传球":        (117, 0.7),
-    "长传次数":        (122, 0.4),
     "创造机会":        (9706, 0.6),
     "创造绝佳机会":     (580, 0.8),
-    "传中成功率":       (1533, 0.3),
+    "赢得点球":        (115, 0.8),
     "尝试过人":        (108, 0.5),
+    "被犯规":          (96, 0.8),
 }
 
 
@@ -196,17 +199,16 @@ def detect_progression(players: list[PlayerData]) -> list[DetectorResult]:
 
 
 # ═══════════════════════════════════════════════════════════════
-# D2: 压迫与反压迫 (Press & Counter-press)
+# D2: 防守扫荡 (Defensive Sweeping)
 # ═══════════════════════════════════════════════════════════════
 
 D2_METRICS = {
     "球权回收":        (27271, 1.0),
-    "成功抢断":        (27267, 1.2),
     "抢断":           (78, 0.8),
+    "拦截":           (100, 0.7),
     "赢得对抗":        (106, 0.6),
     "封堵射门":        (97, 0.5),
     "被过人":          (110, -0.8),
-    "输掉对抗":        (1491, -0.5),
     "抢断成功率":       (27268, 0.6),
 }
 
@@ -217,19 +219,16 @@ def detect_pressing(players: list[PlayerData]) -> list[DetectorResult]:
 
 
 # ═══════════════════════════════════════════════════════════════
-# D3: 无球价值 / Gravity
+# D3: 对抗之王 (Duel King)
 # ═══════════════════════════════════════════════════════════════
 
 D3_METRICS = {
-    "被犯规":          (96, 1.0),
     "总对抗":          (105, 0.6),
     "赢得对抗":        (106, 0.5),
     "赢得空中对抗":     (107, 0.4),
-    "赢得点球":        (115, 2.0),
     "空中对抗总数":     (27274, 0.4),
     "空中成功率":       (27275, 0.3),
     "对抗成功率":       (27276, 0.3),
-    "输掉对抗":        (1491, -0.3),
 }
 
 
@@ -296,13 +295,14 @@ D5_ATK_METRICS = {
     "射门": (42, 1.0), "xG": (5304, 1.5), "xGOT": (5305, 1.0),
     "关键传球": (117, 1.2), "成功过人": (109, 0.8),
     "进球": (52, 2.0), "助攻": (79, 1.5), "三区传球": (27269, 0.6),
+    "赢得点球": (115, 1.0),
 }
 
 D5_DEF_METRICS = {
     "抢断": (78, 1.0), "拦截": (100, 1.0), "球权回收": (27271, 1.0),
     "封堵射门": (97, 0.8), "解围": (101, 0.5), "赢得对抗": (106, 0.6),
-    "被过人": (110, -0.5), "被抢断": (94, -0.5),
-    "导致丢球失误": (571, -2.0), "导致射门失误": (48997, -1.0),
+    "被过人": (110, -0.5),
+    "导致丢球失误": (571, -2.0),
 }
 
 
@@ -352,16 +352,22 @@ def detect_timing(
         g = p.sv_int(52)
         a = p.sv_int(79)
         pen_scored = p.sv_int(111)
+        pen_won = p.sv_int(115)
         if g > 0:
             score += 0.5
         if a > 0:
             score += 0.3
         if pen_scored > 0:
             score += 0.5
+        # penalties_won bonus is already in eb.as_bonus() via won_penalty
+        # but add a small base bonus here too
+        if pen_won > 0:
+            score += 0.3
 
         if score > 0:
             evidence = {
                 "进球": g, "助攻": a, "点球进球": pen_scored,
+                "制造点球": pen_won,
                 "事件加成": eb.labels(),
             }
             results.append(DetectorResult(name=p.name, score=round(score, 2), evidence=evidence))
@@ -463,10 +469,7 @@ D9_METRICS = {
     "三区传球":        (27269, 1.0),
     "成功过人":        (109, 0.5),
     "准确传球":        (116, 0.5),
-    "长传成功":        (123, 0.3),
     "关键传球":        (117, 0.7),
-    "长传次数":        (122, 0.3),
-    "长传成功率":       (27270, 0.3),
     "创造机会":        (9706, 0.5),
 }
 
@@ -641,6 +644,151 @@ def detect_pure_finisher(players: list[PlayerData], team_goals: int) -> list[Det
 
 
 # ═══════════════════════════════════════════════════════════════
+# D13: 终结能力 (Finishing Prowess) — 合并 D10+D11+D12
+# ═══════════════════════════════════════════════════════════════
+
+# Penalty xG standard value (SportMonks convention)
+_PENALTY_XG = 0.76
+
+# Event bonus weights
+_CLUTCH_WEIGHTS = {
+    "winning_goal": 3.0,
+    "late_winner": 3.5,
+    "first_goal": 2.0,
+    "equalizer": 2.5,
+    "scored_penalty": 0.5,
+    "super_sub": 2.5,
+}
+
+
+def _calc_clutch_score(bonuses: Optional[EventBonuses]) -> float:
+    """Calculate clutch/goal-timing bonus score from EventBonuses."""
+    if bonuses is None:
+        return 0.0
+    score = 0.0
+    if bonuses.winning_goal:
+        score += _CLUTCH_WEIGHTS["winning_goal"]
+        if bonuses.late_winner:
+            score += _CLUTCH_WEIGHTS["late_winner"]  # stack on top of winning_goal
+    if bonuses.equalizer:
+        score += _CLUTCH_WEIGHTS["equalizer"]
+    if bonuses.first_goal:
+        score += _CLUTCH_WEIGHTS["first_goal"]
+    if bonuses.scored_penalty:
+        score += _CLUTCH_WEIGHTS["scored_penalty"]
+    if bonuses.super_sub:
+        score += _CLUTCH_WEIGHTS["super_sub"]
+    return score
+
+
+def detect_finishing_prowess(
+    players: list[PlayerData],
+    team_goals: int,
+    bonuses: dict[str, EventBonuses],
+) -> list[DetectorResult]:
+    """
+    合并版终结能力检测器 — 综合评估球员的射门质量、转化效率、
+    超预期表现、进球贡献度和关键进球时机。
+
+    继承自 D10(终结质量) + D11(xG背离度) + D12(纯终结者)。
+    """
+    if team_goals == 0:
+        return []
+
+    team_xg = sum(p.sv(5304) for p in players)
+    results = []
+
+    for p in players:
+        shots = max(p.sv(42), 1)
+        xg = p.sv(5304)
+        xgot = p.sv(5305)
+        goals = p.sv_int(52)
+        shots_on = p.sv(86)
+        woodwork = p.sv_int(64)
+        shooting_perf = p.sv(9685)
+        pen_scored = p.sv_int(111)
+        eb = bonuses.get(p.name)
+
+        # Filter: only players with goals or meaningful xG
+        if goals == 0 and xg < 0.3:
+            continue
+
+        # ── 子维度1: 射门质量 (Shot Quality, 来自D10) ──
+        non_pen_xg = max(xg - pen_scored * _PENALTY_XG, 0)
+        non_pen_shots = max(shots - pen_scored, 1)
+        xg_per_shot = non_pen_xg / non_pen_shots
+        xgot_quality = max(xgot - xg, 0)
+        sot_ratio = shots_on / shots if shots > 0 else 0
+
+        shot_quality = (
+            xg_per_shot * 2.0
+            + xgot_quality * 1.5
+            + sot_ratio * 1.0
+            + shooting_perf * 1.5
+            + woodwork * 0.8
+        )
+
+        # ── 子维度2: 转化效率 (Conversion, 来自D12) ──
+        conversion = goals / shots
+        conversion_score = conversion * 3.0
+
+        # ── 子维度3: 超预期终结 (Overperformance, 来自D11) ──
+        overperformance = max(goals - xg, 0) * 1.5
+
+        # ── 子维度4: 进球贡献度 (Goal Burden, 来自D12) ──
+        goal_burden = (goals / team_goals) * 10.0
+
+        # ── 子维度5: xG支配力 (xG Dominance, 来自D12) ──
+        xg_dominance = (xg / max(team_xg, 0.01)) * 5.0
+
+        # ── 子维度6: 关键进球 (Clutch, 新增) ──
+        clutch = _calc_clutch_score(eb)
+
+        # ── 综合分 ──
+        score = shot_quality + conversion_score + overperformance + goal_burden + xg_dominance + clutch
+
+        # ── 点球惩罚 ──
+        if goals > 0 and pen_scored / goals > 0.5:
+            score *= 0.7
+
+        # ── 标签 ──
+        label_parts = []
+        if clutch >= 3.0:
+            label_parts.append("关键先生")
+        if g_share := goals / team_goals:
+            if g_share >= 1.0:
+                label_parts.append("包办全队进球")
+            elif g_share >= 0.5:
+                label_parts.append("一人锋线")
+            elif g_share >= 0.33:
+                label_parts.append("主要火力点")
+        if goals - xg >= 0.5:
+            label_parts.append("超预期终结")
+        if eb and eb.super_sub:
+            label_parts.append("超级替补")
+
+        evidence = {
+            "终结分": round(score, 2),
+            "进球": goals,
+            "xG": round(xg, 3),
+            "超预期": round(goals - xg, 3),
+            "xG/射门": round(xg_per_shot, 4),
+            "射门": int(shots),
+            "射正": int(shots_on),
+            "射正率": round(sot_ratio * 100, 1),
+            "转化率": round(conversion * 100, 1),
+            "进球占比": round(goals / team_goals * 100, 1),
+            "中框": woodwork,
+            "关键标签": ", ".join(label_parts) if label_parts else "-",
+            "射门表现": round(shooting_perf, 3),
+        }
+        results.append(DetectorResult(name=p.name, score=round(score, 2), evidence=evidence))
+
+    results.sort(key=lambda x: -x.score)
+    return results
+
+
+# ═══════════════════════════════════════════════════════════════
 # Event Bonus Computation (from events list)
 # ═══════════════════════════════════════════════════════════════
 
@@ -654,19 +802,27 @@ def compute_event_bonuses(
 ) -> dict[str, EventBonuses]:
     """
     Parse events to determine event bonuses for each player.
-    events: raw event dicts with keys: type_id, player_name, related_player_name, minute, participant_id
+    events: raw event dicts with keys: type_id or event_type, player_name, related_player_name, minute/period_id, participant_id
     """
     goals = []
     subs = []
     for e in events:
+        # Support both type_id (integer) and event_type/detail (string) formats
         tid = e.get("type_id", 0)
+        et = e.get("event_type", "")
+        detail = e.get("detail", "")
         pn = e.get("player_name", "")
         rn = e.get("related_player_name", "")
-        m = e.get("minute", 0)
-        team_id = e.get("participant_id", 0)
-        if tid in (14, 16, 16):  # goal, penalty goal
-            goals.append({"player_name": pn, "team_id": team_id, "minute": m, "is_penalty": tid == 16})
-        elif tid == 18:
+        m = e.get("minute", 0) or e.get("time_elapsed", 0)
+        team_id = e.get("participant_id", 0) or e.get("team_id", 0)
+
+        is_goal = tid in (14, 16) or (et == "Goal" and detail in ("goal", "goal_penalty"))
+        is_penalty_goal = tid == 16 or detail == "goal_penalty"
+        is_sub = tid == 18 or et == "subst"
+
+        if is_goal:
+            goals.append({"player_name": pn, "team_id": team_id, "minute": m, "is_penalty": is_penalty_goal})
+        elif is_sub:
             subs.append({"player_name": pn, "related_name": rn, "minute": m})
 
     bonuses: dict[str, EventBonuses] = {}
@@ -754,7 +910,7 @@ def compute_event_bonuses(
 
 @dataclass
 class AllDetectorResults:
-    """Aggregated results from all 12 detectors."""
+    """Aggregated results from all 13 detectors."""
     match_name: str
     D1_progression: dict[str, list[DetectorResult]]   # team → results
     D2_pressing: dict[str, list[DetectorResult]]
@@ -768,21 +924,18 @@ class AllDetectorResults:
     D10_finishing: dict[str, list[DetectorResult]]
     D11_xg_deviation: dict[str, list[DetectorResult]]
     D12_pure_finisher: dict[str, list[DetectorResult]]
+    D13_prowess: dict[str, list[DetectorResult]]
 
     def all_team_results(self) -> list[tuple[str, str, list[DetectorResult]]]:
-        """Yields (detector_name, team_name, results)."""
-        for dname in ["D1", "D2", "D3", "D4", "D5", "D7", "D8", "D9", "D10", "D11", "D12"]:
-            d = getattr(self, f"{dname}_progression" if dname == "D1"
-                        else f"{dname}_pressing" if dname == "D2"
-                        else f"{dname}_gravity" if dname == "D3"
-                        else f"{dname}_tempo" if dname == "D4"
-                        else f"{dname}_twoway" if dname == "D5"
-                        else f"{dname}_efficiency" if dname == "D7"
-                        else f"{dname}_role_deviation" if dname == "D8"
-                        else f"{dname}_connector" if dname == "D9"
-                        else f"{dname}_finishing" if dname == "D10"
-                        else f"{dname}_xg_deviation" if dname == "D11"
-                        else f"{dname}_pure_finisher")
+        """Yields (detector_id, team_name, results). D11/D12 excluded from contribution view."""
+        _ATTR_MAP = {
+            "D1": "D1_progression", "D2": "D2_pressing", "D3": "D3_gravity",
+            "D4": "D4_tempo", "D5": "D5_twoway", "D7": "D7_efficiency",
+            "D8": "D8_role_deviation", "D9": "D9_connector", "D10": "D10_finishing",
+            "D13": "D13_prowess",
+        }
+        for dname, attr in _ATTR_MAP.items():
+            d = getattr(self, attr)
             for team_name, results in d.items():
                 yield (dname, team_name, results)
 
@@ -888,6 +1041,16 @@ def run_all_detectors(
     # Event bonuses
     bonuses = compute_event_bonuses(events, home_id, away_id, score_home, score_away, end_minute)
 
+    # Add won_penalty bonus from player stats (penalties_won)
+    for p in home_players + away_players:
+        pen_won = p.sv_int(115)
+        if pen_won > 0:
+            eb = bonuses.get(p.name)
+            if eb is None:
+                eb = EventBonuses()
+                bonuses[p.name] = eb
+            eb.won_penalty = True
+
     # Exclude GK from outfield detectors
     def outfield(plist):
         return [p for p in plist if p.pos != "G"]
@@ -942,6 +1105,30 @@ def run_all_detectors(
             home_name: detect_pure_finisher(outfield(home_players), score_home),
             away_name: detect_pure_finisher(outfield(away_players), score_away),
         },
+        D13_prowess={
+            home_name: detect_finishing_prowess(outfield(home_players), score_home, bonuses),
+            away_name: detect_finishing_prowess(outfield(away_players), score_away, bonuses),
+        },
     )
 
     return results
+
+
+# ═══════════════════════════════════════════════════════════════
+# Detector Tags (≤6 字，对优秀球员的评价)
+# ═══════════════════════════════════════════════════════════════
+DETECTOR_TAGS = {
+    "D1": "推进引擎",
+    "D2": "防守铁闸",
+    "D3": "缠斗高手",
+    "D4": "节拍器",
+    "D5": "全能战士",
+    "D6": "关键先生",
+    "D7": "高效输出",
+    "D8": "多面手",
+    "D9": "串联枢纽",
+    "D10": "射门质量高",
+    "D11": "超预期终结",
+    "D12": "头号火力点",
+    "D13": "终结者",
+}
