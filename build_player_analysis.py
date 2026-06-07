@@ -12,10 +12,6 @@ import yaml
 import requests
 import numpy as np
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
 sys.path.insert(0, '.')
 from src.engine.player_insights import (
     run_all_detectors, DETECTOR_TAGS, classify_position, AllDetectorResults,
@@ -33,14 +29,8 @@ DETECTOR_ATTRS = {
     "D13": "D13_prowess",
 }
 
-# ── Card layout constants ──
-PANEL_W = 9.6; MARGIN = 0.25; HEADER_H = 0.40; TAGS_H = 0.28
-GRID_TOP_GAP = 0.10; CARD_PAD = 0.10; TITLE_H = 0.20; COL_HEAD_H = 0.18
-METRIC_ROW_H = 0.16; FOOTNOTE_H = 0.14; PHOTO_R = 0.16; BADGE_R = 0.12
-
-
 # ═══════════════════════════════════════════════════════════════
-# Team Color Extraction
+# Team Color Extraction (used by Excel, not cards)
 # ═══════════════════════════════════════════════════════════════
 
 def extract_team_color(badge_url: str) -> str:
@@ -188,59 +178,46 @@ def generate_player_summaries(
 
 
 # ═══════════════════════════════════════════════════════════════
-# Player Card Generator (matplotlib, uses team color)
+# Player Card Generator (HTML/CSS + Playwright)
 # ═══════════════════════════════════════════════════════════════
 
-def _fetch_image(url: str) -> np.ndarray | None:
-    if not url: return None
-    try:
-        session = requests.Session(); session.trust_env = False
-        resp = session.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
-        resp.raise_for_status()
-        img = plt.imread(io.BytesIO(resp.content))
-        if img.ndim == 2: img = np.stack([img] * 3, axis=-1)
-        if img.shape[-1] == 4: img = img[..., :3]
-        return img
-    except Exception: return None
+# Fixed blue color scheme for all cards
+_CARD_STYLE = {
+    "primary": "#2d6df6", "accent": "#5b9df5",
+    "secondary": "#1a3a7a", "bg": "#0b1a2e",
+    "card_bg": "#142440", "text": "#e0e8f8",
+    "dim": "#7a8aaa", "tag_bg": "#2d6df6",
+}
 
+_INTEGER_METRICS = {
+    "传球","触球","回传","三区传球","射门","射正","进球","助攻","抢断","拦截",
+    "解围","封堵射门","被犯规","尝试过人","成功过人","赢得对抗","总对抗",
+    "赢得空中对抗","空中对抗总数","球权回收","被过人","导致丢球失误",
+    "传中","精准传中","关键传球","创造机会","创造绝佳机会","制造点球",
+    "赢得点球","点球进球","准确传球","中框","分钟","KP",
+    "成功对抗","对抗总数","过人成功","过人尝试","赢得点球","犯规","被犯规",
+    "黄牌","红牌","丢失球权","扑救","解围","拦截",
+}
+_RATIO_METRICS = {
+    "准确率","传球占比","触球占比","向前比","抢断成功率","对抗成功率",
+    "空中成功率","射正率","转化率","xG/射门","非点球xG","xG/90",
+    "KP/90","射门/90","射正/90","过人/90","被犯规/90","射门表现/90",
+    "射门表现","偏差","超预期","进攻贡献","防守贡献",
+    "传球成功率","过人成功率","对抗成功率",
+}
 
-def _circle_image(img: np.ndarray) -> np.ndarray:
-    """Crop to circle. Handles float32(0-1) and uint8(0-255)."""
-    h, w = img.shape[:2]; size = min(h, w)
-    cy, cx = h // 2, w // 2
-    y1, y2 = cy - size // 2, cy + size // 2
-    x1, x2 = cx - size // 2, cx + size // 2
-    cropped = img[y1:y2, x1:x2].copy()
-    if cropped.dtype in (np.float32, np.float64):
-        cropped = (cropped * 255).clip(0, 255)
-    cropped = np.asarray(cropped, dtype=np.uint8)
-    yy, xx = np.ogrid[:size, :size]
-    dist = np.sqrt((yy - size / 2 + 0.5) ** 2 + (xx - size / 2 + 0.5) ** 2)
-    mask = dist <= size / 2
-    rgba = np.zeros((size, size, 4), dtype=np.uint8)
-    if cropped.ndim == 3 and cropped.shape[2] >= 3:
-        rgba[:, :, :3] = cropped[:, :, :3]
-    else:
-        rgba[:, :, :3] = cropped[:, :, :1] if cropped.ndim == 2 else cropped
-    rgba[:, :, 3] = (mask * 255).astype(np.uint8)
-    return rgba
-
-
-def _darken(hex_color: str, factor: float = 0.7) -> str:
-    """Darken a hex color by factor."""
-    h = hex_color.lstrip('#')
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    r, g, b = int(r * factor), int(g * factor), int(b * factor)
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
-def _format_val(v) -> str:
-    if isinstance(v, float):
-        if abs(v) >= 100: return str(int(v))
-        elif abs(v) >= 10: return f"{v:.1f}"
-        elif abs(v) < 1 and v != 0: return f"{v:.3f}"
-        else: return f"{v:.2f}"
-    return str(v)
+def _card_fmt_val(v, mname=""):
+    if v is None: return "0"
+    try: fv = float(v)
+    except: return str(v)
+    if mname in _RATIO_METRICS:
+        if abs(fv) < 1 and fv != 0: return f"{fv:.3f}"
+        if abs(fv) >= 100: return str(int(fv))
+        if abs(fv) >= 10: return f"{fv:.1f}"
+        return f"{fv:.2f}"
+    if mname in _INTEGER_METRICS or fv == int(fv): return str(int(fv))
+    if abs(fv) >= 100: return str(int(fv))
+    return f"{fv:.2f}"
 
 
 def build_sections(results, hname, aname, player_name, team_name) -> list[dict]:
@@ -250,7 +227,6 @@ def build_sections(results, hname, aname, player_name, team_name) -> list[dict]:
         d = getattr(results, attr)
         raw_by_detector[dname] = d
         if isinstance(d, list):
-            # D6 is a flat list, treat as single team
             top3_by_detector[dname] = {"team_results": {
                 team_name: [{"name": r.name, "score": r.score} for r in d[:3]],
                 hname: [{"name": r.name, "score": r.score} for r in d[:3]],
@@ -276,7 +252,7 @@ def _build_player_sections(raw_by_detector, top3_by_detector, player_name, team_
             continue
         raw_detector = raw_by_detector.get(dname, {})
         if isinstance(raw_detector, list):
-            raw_results = raw_detector  # D6 is a flat list
+            raw_results = raw_detector
         else:
             raw_results = raw_detector.get(team_name, [])
         player_result = next((r for r in raw_results if r.name == player_name), None)
@@ -316,132 +292,90 @@ def _build_player_sections(raw_by_detector, top3_by_detector, player_name, team_
 def render_player_card(
     player_name: str, photo_url: str, team_name: str, team_logo_url: str,
     sections: list[dict], output_path: str,
-    accent_color: str = "#2ecc71",
+    accent_color: str = "",
     jersey_number: str = "", minutes: int = 0,
     llm_summary: str = "", dpi: int = 200,
 ):
-    import matplotlib.font_manager as _fm
-    # Ensure Chinese font
-    _cjk = [f.name for f in _fm.fontManager.ttflist if any(
-        k in f.name.lower() for k in ["simhei", "microsoft yahei", "noto sans cjk"])]
-    if _cjk:
-        plt.rcParams["font.sans-serif"] = [_cjk[0], "SimHei", "Microsoft YaHei"] + plt.rcParams["font.sans-serif"]
-        plt.rcParams["axes.unicode_minus"] = False
+    """Render player card via HTML/CSS + Playwright (replaces matplotlib)."""
+    from playwright.sync_api import sync_playwright
+
+    s = _CARD_STYLE
     n_sections = len(sections)
     if n_sections == 0: return
 
-    ncols = 3 if n_sections > 2 else 2
-    nrows = (n_sections + ncols - 1) // ncols
-    usable_w = PANEL_W - 2 * MARGIN
-    gap = 0.10; card_w = (usable_w - (ncols - 1) * gap) / ncols
-    max_m = max((len(s["metrics"]) for s in sections), default=0)
-    card_h = TITLE_H + COL_HEAD_H + max_m * METRIC_ROW_H + 2 * CARD_PAD
-    grid_h = nrows * card_h + (nrows - 1) * gap
-    total_h = MARGIN + HEADER_H + TAGS_H + GRID_TOP_GAP + grid_h + MARGIN + FOOTNOTE_H
+    cards_html = ""
+    for sec in sections:
+        metrics = sec.get("metrics", [])
+        if not metrics: continue
+        metrics = metrics[:5]  # top 5
+        rows = "".join(
+            '<tr><td class="mn">{}</td><td class="mv">{}</td><td class="mr">{}</td><td class="mo">{}</td></tr>'.format(
+                mname, _card_fmt_val(mval, mname), tr, otr)
+            for (mname, mval, tr, otr) in metrics)
+        cards_html += (
+            '<div class="tc"><div class="th"><span class="tb">{tag}</span></div>'
+            '<table class="mt"><thead><tr><th>指标</th><th>值</th><th>队</th><th>场</th></tr></thead>'
+            '<tbody>{rows}</tbody></table></div>'
+        ).format(tag=sec["tag"], rows=rows)
 
-    accent = accent_color
-    accent_dark = _darken(accent)
-    bg_color = "#0f0f1a"
+    ph = '<img src="{}">'.format(photo_url) if photo_url else ""
+    lo = '<img src="{}">'.format(team_logo_url) if team_logo_url else ""
 
-    fig, ax = plt.subplots(figsize=(PANEL_W, total_h), dpi=dpi)
-    ax.set_xlim(0, PANEL_W); ax.set_ylim(0, total_h)
-    ax.axis("off"); fig.patch.set_facecolor(bg_color)
-
-    def _yt(off): return total_h - off
-
-    photo_img = _fetch_image(photo_url); badge_img = _fetch_image(team_logo_url)
-    if photo_img is not None: circle_img = _circle_image(photo_img)
-
-    # ── HEADER ──
-    header_y = _yt(MARGIN + HEADER_H / 2)
-    photo_cx = MARGIN + PHOTO_R + 0.08
-    if photo_img is not None:
-        ax.imshow(circle_img, extent=[photo_cx - PHOTO_R, photo_cx + PHOTO_R,
-                                      header_y - PHOTO_R, header_y + PHOTO_R], zorder=5)
-    else:
-        ax.add_patch(plt.Circle((photo_cx, header_y), PHOTO_R,
-                                facecolor="#3a3a5c", edgecolor=accent, linewidth=1.5))
-
-    # Name line: name + jersey + minutes, then summary on right
-    name_x = photo_cx + PHOTO_R + 0.10
-    display_name = player_name
-    if jersey_number: display_name += f"  #{jersey_number}"
-    if minutes > 0: display_name += f"  {minutes}'"
-    ax.text(name_x, header_y, display_name, fontsize=9, color="white",
-            fontweight="bold", ha="left", va="center")
-
-    # LLM summary — right-aligned, parallel to name
-    if llm_summary:
-        ax.text(PANEL_W - MARGIN - 0.05, header_y, llm_summary,
-                fontsize=6.5, color=accent, ha="right", va="center",
-                fontstyle="italic")
-
-    # ── TAGS ──
-    tags = [s["tag"] for s in sections]
-    tag_yt = _yt(MARGIN + HEADER_H + TAGS_H / 2)
-    tag_x = MARGIN + 0.05; tag_h = 0.14
-    for tag_text in tags:
-        tag_w = max(len(tag_text) * 0.14, 0.30)
-        ax.add_patch(plt.Rectangle((tag_x, tag_yt - tag_h / 2), tag_w, tag_h,
-                    facecolor=accent, alpha=0.85, edgecolor=accent_dark,
-                    linewidth=0.5, zorder=3))
-        ax.text(tag_x + tag_w / 2, tag_yt, tag_text, fontsize=6.5, color="white",
-                ha="center", va="center", fontweight="bold")
-        tag_x += tag_w + 0.06
-
-    # ── CARDS ──
-    grid_top_offset = MARGIN + HEADER_H + TAGS_H + GRID_TOP_GAP
-    for si, sec in enumerate(sections):
-        row, col = si // ncols, si % ncols
-        cx = MARGIN + col * (card_w + gap)
-        ctop = grid_top_offset + row * (card_h + gap)
-        cy = _yt(ctop) - card_h
-        ax.add_patch(plt.Rectangle((cx, cy), card_w, card_h,
-                     facecolor="#1a1a2e", edgecolor="#2a2a4a", linewidth=0.5, zorder=1))
-        ty = cy + card_h - CARD_PAD - TITLE_H / 2
-        ax.text(cx + CARD_PAD, ty, sec["tag"], fontsize=6.5, color=accent,
-                fontweight="bold", ha="left", va="center")
-        ax.text(cx + card_w - CARD_PAD, ty, f"{sec['score']:.2f}",
-                fontsize=5.5, color="#8899aa", ha="right", va="center")
-        sep_y = cy + card_h - CARD_PAD - TITLE_H
-        ax.plot([cx + CARD_PAD, cx + card_w - CARD_PAD], [sep_y, sep_y],
-                color=accent, alpha=0.2, linewidth=0.5)
-        chdr_y = sep_y - COL_HEAD_H / 2
-        inner_w = card_w - 2 * CARD_PAD
-        cols_x = [cx + CARD_PAD,
-                  cx + CARD_PAD + inner_w * 0.44,
-                  cx + CARD_PAD + inner_w * 0.66,
-                  cx + CARD_PAD + inner_w * 0.80]
-        col_centers = [cols_x[i] + [0.44, 0.22, 0.14, 0.20][i] * inner_w / 2 for i in range(4)]
-        for i, hdr in enumerate(["指标", "值", "队", "场"]):
-            ax.text(col_centers[i], chdr_y, hdr, fontsize=5.0,
-                    color="#556677", ha="center", va="center")
-        row_bottom = sep_y - COL_HEAD_H
-        for mi, (mname, mval, tr, otr) in enumerate(sec["metrics"]):
-            ry = row_bottom - (mi + 0.5) * METRIC_ROW_H
-            ax.text(cols_x[0] + 0.02, ry, mname, fontsize=5.5,
-                    color="#ccd6e0", ha="left", va="center")
-            ax.text(col_centers[1], ry, _format_val(mval), fontsize=5.5,
-                    color="white", ha="center", va="center", fontweight="bold")
-            ax.text(col_centers[2], ry, str(tr), fontsize=5.5, color="#aabbcc", ha="center", va="center")
-            ax.text(col_centers[3], ry, str(otr), fontsize=5.5, color="#aabbcc", ha="center", va="center")
-
-    # ── FOOTER ──
-    fny = MARGIN + FOOTNOTE_H / 2
-    ax.text(MARGIN + 0.05, fny, "队: 队内排名    场: 对阵双方排名",
-            fontsize=4.5, color="#445566", ha="left", va="center")
-    badge_cx = PANEL_W - MARGIN - BADGE_R - 0.05
-    if badge_img is not None:
-        ax.imshow(badge_img, extent=[badge_cx - BADGE_R, badge_cx + BADGE_R,
-                                     fny - BADGE_R, fny + BADGE_R], zorder=5)
-    team_x = badge_cx - BADGE_R - 0.05
-    ax.text(team_x, fny, team_name, fontsize=6.5, color="#ccd6e0",
-            fontweight="bold", ha="right", va="center")
+    html = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{width:740px;font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:{bg};color:{text};-webkit-font-smoothing:antialiased}}
+.card{{padding:28px 24px 20px}}
+.hd{{display:flex;align-items:center;gap:16px;margin-bottom:20px}}
+.pw{{width:76px;height:76px;border-radius:50%;overflow:hidden;flex-shrink:0;border:3px solid {p};box-shadow:0 0 20px {p}33}}
+.pw img{{width:100%;height:100%;object-fit:cover}}
+.hi{{flex:1;min-width:0}}
+.pn{{font-size:24px;font-weight:800;color:#fff;letter-spacing:.5px}}
+.pm{{display:flex;gap:10px;margin-top:6px;font-size:14px;color:#fff;font-weight:700}}
+.pm span{{background:{card_bg};padding:3px 10px;border-radius:5px;border:1px solid {dim}22;font-weight:700;color:#fff}}
+.su{{font-size:13px;color:#fff;margin-top:6px;font-style:italic;line-height:1.5;font-weight:600}}
+.dv{{height:1px;background:linear-gradient(90deg,{p}66,{ac}44,transparent);margin-bottom:20px;border:none}}
+.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}
+.tc{{background:{card_bg};border-radius:10px;overflow:hidden;border:1px solid {p}14}}
+.th{{padding:9px 14px;background:{p}0a;border-bottom:1px solid {p}18}}
+.tb{{display:inline-block;background:{tag_bg};color:#fff;font-size:13px;font-weight:700;padding:4px 12px;border-radius:4px;letter-spacing:.3px}}
+.mt{{width:100%;border-collapse:collapse}}
+.mt th{{font-size:11px;color:{dim};text-align:left;padding:4px 12px 4px 14px;font-weight:600;border-bottom:1px solid {p}10}}
+.mt th:nth-child(2){{text-align:center;width:48px;padding:4px 8px}}
+.mt th:nth-child(3),.mt th:nth-child(4){{text-align:center;width:30px;padding:4px 4px}}
+.mt td{{font-size:12px;padding:5px 12px 5px 14px;border-top:1px solid {p}06}}
+.mn{{color:#c0cddc;font-weight:600}}
+.mv{{color:#fff;text-align:center;font-weight:700;padding:5px 8px}}
+.mr{{text-align:center;color:{dim};font-size:11px;padding:5px 4px;font-weight:600}}
+.mo{{text-align:center;color:{ac};font-weight:700;font-size:11px;padding:5px 4px}}
+.ft{{display:flex;align-items:center;justify-content:space-between;margin-top:18px;padding-top:12px;border-top:1px solid {p}18}}
+.fl{{display:flex;align-items:center;gap:8px;font-size:13px;color:{dim}}}
+.fl img{{width:22px;height:22px;object-fit:contain}}
+.fn{{font-size:11px;color:#4a5a6a}}
+</style></head><body><div class="card">
+<div class="hd"><div class="pw">{ph}</div><div class="hi">
+<div class="pn">{name}</div>
+<div class="pm"><span>球衣 #{num}</span><span>出场时间 {min}&prime;</span></div>
+<div class="su">{summ}</div></div></div>
+<hr class="dv"><div class="grid">{cards}</div>
+<div class="ft"><div class="fl">{lo}{team}</div><div class="fn">队 = 队内排名 &middot; 场 = 全场排名</div></div>
+</div></body></html>""".format(
+        bg=s["bg"], text=s["text"], p=s["primary"], ac=s["accent"],
+        dim=s["dim"], card_bg=s["card_bg"], tag_bg=s["tag_bg"],
+        ph=ph, name=player_name, num=jersey_number, min=minutes,
+        summ=llm_summary[:100] if llm_summary else "",
+        cards=cards_html, lo=lo, team=team_name,
+    )
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    fig.savefig(output_path, dpi=dpi, facecolor=bg_color, edgecolor="none",
-                bbox_inches="tight", pad_inches=0.08)
-    plt.close(fig)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 760, "height": 900})
+        page.set_content(html, wait_until="commit", timeout=30000)
+        h = page.evaluate("document.body.scrollHeight")
+        page.set_viewport_size({"width": 760, "height": h + 20})
+        page.screenshot(path=output_path, full_page=True)
+        browser.close()
+
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -765,7 +699,7 @@ def process_match(match_id, llm_config, dry_run=False):
                     contrib = abs(evv.get("contrib", raw)) if isinstance(evv, dict) else abs(float(raw) if isinstance(raw, (int, float)) else 0)
                     all_ev[evk] = (raw, contrib)
         top_ev = sorted(all_ev.items(), key=lambda x: -x[1][1])[:5]
-        key_stats = "，".join(f"{k} {_format_val(v[0])}" for k, v in top_ev)
+        key_stats = "，".join(f"{k} {_card_fmt_val(v[0], k)}" for k, v in top_ev)
         players_for_llm.append({
             'name': v['name'], 'team': v['team'],
             'position': v['position'], 'minutes': v['minutes'],
