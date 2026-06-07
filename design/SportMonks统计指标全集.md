@@ -2,13 +2,13 @@
 
 > 基于 SportMonks Football API V3，以 PSG vs Arsenal (fixture 19683241) 实际返回数据验证。
 >
-> 标记说明：✅ 已采集并存入数据模型 | ⚠️ API 返回但代码未采集 | — 球员级 API 不返回此数据
+> 标记说明：✅ 已采集 | ⚠️ 球队级未返回/未采集 | — 球员级不返回 | 球员级已达 100% 覆盖
 
 ---
 
-## 一、球队级统计 (Fixture Statistics) — 44 项
+## 一、球队级统计 (Fixture Statistics) — 45 项
 
-球队统计通过 `fixtures/{id}?include=statistics` 获取，使用 `FIXTURE_STAT_MAP` 映射。
+球队统计通过 `fixtures/{id}?include=statistics` 获取，使用 `FIXTURE_STAT_MAP` 映射。API 实际返回 39 项（部分零值指标如红牌/失球等仅在发生时返回）。
 
 ### 1.1 射门 (Shooting)
 
@@ -106,50 +106,51 @@
 | 88 | GOALS_CONCEDED | 球队失球(在场时) | ✅ | — |
 | 72 | FIRST_SUBSTITUTION | 第一次换人时间 | ⚠️ | API 返回但代码未采集 |
 | 61 | BEATS | 被突破次数 | ⚠️ | API 返回但代码未采集 |
+| 1605 | DUELS_WON_PCT | 对抗成功率 % | ✅ | 2026-06-08 新增映射 |
 
 ---
 
 ## 二、球员级统计 (Player Statistics)
 
-球员数据通过 `lineups.details` 获取。基于 fixture 19683241 实测，SportMonks API 返回 **66 项** type_id，当前 `PLAYER_STAT_MAP` 已映射 **49 项**，PlayerStats dataclass 全部覆盖。
+球员数据通过 `lineups.details` 获取。基于 fixture 19683241 实测，SportMonks API 返回 **66 项** type_id，当前 `PLAYER_STAT_MAP` 已映射 **66 项**（覆盖 100%），PlayerStats dataclass 全部覆盖。
 
 > 标记说明：✅ 已采集 | ⚠️ API 返回但代码未映射 | — 此指标在球员级 API 不返回（仅球队级）
 
 ### 2.1 基础信息 (Basic Info)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
-| 40 | CAPTAIN | 是否队长 | ✅ | 布尔值 |
-| 118 | RATING | 比赛评分 | ✅ | 浮点数 |
-| 119 | MINUTES_PLAYED | 出场时间(分钟) | ✅ | |
-| 117172 | CUMULATIVE_MINUTES_PLAYED | 赛季累计出场时间 | ⚠️ | |
-| 1490 | MAN_OF_MATCH | 全场最佳 | ✅ | 布尔值 |
-| 120 | TOUCHES | 触球次数 | ✅ | |
+| 40 | CAPTAIN | 是否队长 | ✅ | `captain` |
+| 118 | RATING | 比赛评分 | ✅ | `rating` |
+| 119 | MINUTES_PLAYED | 出场时间(分钟) | ✅ | `minutes_played` |
+| 117172 | CUMULATIVE_MINUTES_PLAYED | 赛季累计出场时间 | ✅ | `cumulative_minutes_played` |
+| 1490 | MAN_OF_MATCH | 全场最佳 | ✅ | `man_of_match` |
+| 120 | TOUCHES | 触球次数 | ✅ | `touches` |
 
 ### 2.2 射门 (Shooting)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 42 | SHOTS_TOTAL | 总射门 | ✅ | `shots_total` |
 | 86 | SHOTS_ON_TARGET | 射正 | ✅ | `shots_on` |
-| 41 | SHOTS_OFF_TARGET | 射偏 | ⚠️ | |
-| 58 | SHOTS_BLOCKED | 被封堵射门 | ⚠️ | |
+| 41 | SHOTS_OFF_TARGET | 射偏 | ✅ | `shots_off` |
+| 58 | SHOTS_BLOCKED | 被封堵射门 | ✅ | `shots_blocked` |
 | 64 | HIT_WOODWORK | 中框（门柱/横梁） | ✅ | `hit_woodwork` |
 
 ### 2.3 进球与助攻 (Goals & Assists)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 52 | GOALS | 进球 | ✅ | `goals` |
 | 79 | ASSISTS | 助攻 | ✅ | `assists` |
 | 111 | PENALTIES_SCORED | 点球进球 | ✅ | `penalties_scored` |
 | 580 | BIG_CHANCES_CREATED | 创造绝佳机会 | ✅ | `big_chances_created` |
-| 581 | BIG_CHANCES_MISSED | 错失绝佳机会 | ⚠️ | |
+| 581 | BIG_CHANCES_MISSED | 错失绝佳机会 | ✅ | `big_chances_missed` |
 | 9706 | CHANCES_CREATED | 创造机会 | ✅ | `chances_created` |
 
 ### 2.4 传球 (Passing)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 80 | PASSES | 传球总次数 | ✅ | `passes_total` |
 | 116 | ACCURATE_PASSES | 准确传球次数 | ✅ | `passes_accurate` |
@@ -157,55 +158,55 @@
 | 117 | KEY_PASSES | 关键传球 | ✅ | `passes_key` |
 | 98 | TOTAL_CROSSES | 传中总次数 | ✅ | `crosses` |
 | 99 | ACCURATE_CROSSES | 精准传中 | ✅ | `crosses_accurate` |
-| 1533 | SUCCESSFUL_CROSSES_PERCENTAGE | 传中成功率 % | ⚠️ | |
-| 122 | LONG_BALLS | 长传次数 | ⚠️ | |
-| 123 | LONG_BALLS_WON | 成功长传 | ⚠️ | |
-| 27270 | LONG_BALLS_WON_PERCENTAGE | 长传成功率 % | ⚠️ | |
+| 1533 | SUCCESSFUL_CROSSES_PERCENTAGE | 传中成功率 % | ✅ | `crosses_accuracy` |
+| 122 | LONG_BALLS | 长传次数 | ✅ | `long_balls`，门将+外场均可用 |
+| 123 | LONG_BALLS_WON | 成功长传 | ✅ | `long_balls_won` |
+| 27270 | LONG_BALLS_WON_PERCENTAGE | 长传成功率 % | ✅ | `long_balls_won_pct` |
 | 27269 | PASSES_IN_FINAL_THIRD | 进攻三区传球 | ✅ | `passes_final_third` |
 | 27272 | BACKWARD_PASSES | 回传次数 | ✅ | `back_passes` |
 
 ### 2.5 防守 (Defense)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 78 | TACKLES | 抢断 | ✅ | `tackles_total` |
-| 27267 | TACKLES_WON | 成功抢断 | ⚠️ | |
+| 27267 | TACKLES_WON | 成功抢断 | ✅ | `tackles_won` |
 | 27268 | TACKLES_WON_PERCENTAGE | 抢断成功率 % | ✅ | `tackles_won_pct` |
 | 100 | INTERCEPTIONS | 拦截 | ✅ | `tackles_interceptions` |
 | 101 | CLEARANCES | 解围 | ✅ | `clearances` |
 | 27271 | BALL_RECOVERY | 球权回收 | ✅ | `ball_recoveries` |
 | 97 | BLOCKED_SHOTS | 封堵射门 | ✅ | `blocked_shots` |
 | 110 | DRIBBLED_PAST | 被过人 | ✅ | `dribbled_past` |
-| 94 | DISPOSSESSED | 被抢断 | ⚠️ | |
+| 94 | DISPOSSESSED | 被抢断 | ✅ | `dispossessed` |
 | 27273 | POSSESSION_LOST | 丢失球权 | ✅ | `possession_lost` |
 
 ### 2.6 对抗 (Duels)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 105 | TOTAL_DUELS | 总对抗 | ✅ | `duels_total` |
 | 106 | DUELS_WON | 赢得对抗 | ✅ | `duels_won` |
-| 1491 | DUELS_LOST | 输掉对抗 | ⚠️ | |
+| 1491 | DUELS_LOST | 输掉对抗 | ✅ | `duels_lost` |
 | 27276 | DUELS_WON_PERCENTAGE | 对抗成功率 % | ✅ | `duels_won_pct` |
 | 107 | AERIALS_WON | 赢得空中对抗 | ✅ | `aerials_won` |
 | 27274 | AERIALS | 空中对抗总次数 | ✅ | `aerials` |
-| 27266 | AERIALS_LOST | 输掉空中对抗 | ⚠️ | |
+| 27266 | AERIALS_LOST | 输掉空中对抗 | ✅ | `aerials_lost` |
 | 27275 | AERIALS_WON_PERCENTAGE | 空中对抗成功率 % | ✅ | `aerials_won_pct` |
 
 ### 2.7 盘带 (Dribbling)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 108 | DRIBBLE_ATTEMPTS | 尝试过人 | ✅ | `dribbles_attempts` |
 | 109 | SUCCESSFUL_DRIBBLES | 成功过人 | ✅ | `dribbles_success` |
 
 ### 2.8 犯规与纪律 (Fouls & Discipline)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 56 | FOULS | 犯规 | ✅ | `fouls_committed` |
 | 96 | FOULS_DRAWN | 被犯规 | ✅ | `fouls_drawn` |
-| 114 | PENALTIES_COMMITTED | 送点 | ⚠️ | |
+| 114 | PENALTIES_COMMITTED | 送点 | ✅ | `penalties_committed` |
 | 115 | PENALTIES_WON | 赢得点球 | ✅ | `penalties_won` |
 | 84 | YELLOWCARDS | 黄牌 | ✅ | `yellowcards` |
 | 83 | REDCARDS | 红牌 | ✅ | `redcards` |
@@ -214,29 +215,29 @@
 
 | type_id | 开发者名称 | 中文名 | 状态 |
 |--------:|-----------|--------|:--:|
-| 51 | OFFSIDES | 越位次数 | ⚠️ |
+| 51 | OFFSIDES | 越位次数 | ✅ | `offsides` |
 
 ### 2.10 门将 (Goalkeeper)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 57 | SAVES | 扑救 | ✅ | `saves` |
-| 104 | SAVES_INSIDE_BOX | 禁区内扑救 | ⚠️ | |
-| 103 | PUNCHES | 门将击球 | ⚠️ | |
-| 88 | GOALS_CONCEDED | 球队失球(在场时) | ⚠️ | |
-| 1535 | GOALKEEPER_GOALS_CONCEDED | 门将失球 | ⚠️ | |
-| 584 | GOOD_HIGH_CLAIM | 成功摘高球 | ⚠️ | |
+| 104 | SAVES_INSIDE_BOX | 禁区内扑救 | ✅ | `saves_inside_box` |
+| 103 | PUNCHES | 门将击球 | ✅ | `punches` |
+| 88 | GOALS_CONCEDED | 球队失球(在场时) | ✅ | `goals_conceded` |
+| 1535 | GOALKEEPER_GOALS_CONCEDED | 门将失球 | ✅ | `goalkeeper_goals_conceded` |
+| 584 | GOOD_HIGH_CLAIM | 成功摘高球 | ✅ | `good_high_claim` |
 
 ### 2.11 失误 (Errors)
 
-| type_id | 开发者名称 | 中文名 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|:--:|------|
 | 571 | ERROR_LEAD_TO_GOAL | 导致丢球的失误 | ✅ | `error_lead_to_goal` |
-| 48997 | ERROR_LEAD_TO_SHOT | 导致射门的失误 | ⚠️ | |
+| 48997 | ERROR_LEAD_TO_SHOT | 导致射门的失误 | ✅ | `error_lead_to_shot` |
 
 ### 2.12 高阶 xG 数据 (Expected Goals)
 
-| type_id | 开发者名称 | 中文名 | 说明 | 状态 | 备注 |
+| type_id | 开发者名称 | 中文名 | 说明 | 状态 | 备注 (raw_data key) |
 |--------:|-----------|--------|------|:--:|------|
 | 5304 | EXPECTED_GOALS | 期望进球 (xG) | 每脚射门 xG 之和 | ✅ | `xg`，TCR/LDI 核心输入 |
 | 5305 | EXPECTED_GOALS_ON_TARGET | 射正期望进球 (xGOT) | 射正后的期望进球 | ✅ | `xgot` |
@@ -244,36 +245,16 @@
 
 ---
 
-> **汇总**：API 返回 66 项球员级 type_id，`PLAYER_STAT_MAP` 已映射 **49 项**（覆盖 74%）。剩余 **17 项** 未映射。
+> **汇总**：API 返回 66 项球员级 type_id，`PLAYER_STAT_MAP` 已映射 **66 项**（覆盖 100%）。无遗漏。
 
 ---
 
-## 三、未映射球员指标清单（17 项）
+## 三、已废弃：原未映射清单
 
-以下 type_id 目前 API 返回但 PLAYER_STAT_MAP 未包含：
-
-| type_id | 开发者名称 | 中文名 | 分类 |
-|--------:|-----------|--------|------|
-| 41 | SHOTS_OFF_TARGET | 射偏 | 射门 |
-| 58 | SHOTS_BLOCKED | 被封堵射门 | 射门 |
-| 51 | OFFSIDES | 越位次数 | 越位 |
-| 581 | BIG_CHANCES_MISSED | 错失绝佳机会 | 进球 |
-| 122 | LONG_BALLS | 长传次数 | 传球 |
-| 123 | LONG_BALLS_WON | 成功长传 | 传球 |
-| 1533 | SUCCESSFUL_CROSSES_PERCENTAGE | 传中成功率 % | 传球 |
-| 27270 | LONG_BALLS_WON_PERCENTAGE | 长传成功率 % | 传球 |
-| 27267 | TACKLES_WON | 成功抢断 | 防守 |
-| 94 | DISPOSSESSED | 被抢断 | 防守 |
-| 1491 | DUELS_LOST | 输掉对抗 | 对抗 |
-| 27266 | AERIALS_LOST | 输掉空中对抗 | 对抗 |
-| 114 | PENALTIES_COMMITTED | 送点 | 纪律 |
-| 104 | SAVES_INSIDE_BOX | 禁区内扑救 | 门将 |
-| 103 | PUNCHES | 门将击球 | 门将 |
-| 88 | GOALS_CONCEDED | 球队失球(在场时) | 门将 |
-| 1535 | GOALKEEPER_GOALS_CONCEDED | 门将失球 | 门将 |
-| 584 | GOOD_HIGH_CLAIM | 成功摘高球 | 门将 |
-| 48997 | ERROR_LEAD_TO_SHOT | 导致射门的失误 | 失误 |
-| 117172 | CUMULATIVE_MINUTES_PLAYED | 赛季累计出场时间 | 基础 |
+> 2026-06-08：最后一批 11 项全部补全，以下指标已从 ⚠️ → ✅：
+> `shots_off`(41) / `offsides`(51) / `shots_blocked`(58) / `dispossessed`(94) / `penalties_committed`(114) /
+> `big_chances_missed`(581) / `duels_lost`(1491) / `crosses_accuracy`(1533) /
+> `aerials_lost`(27266) / `tackles_won`(27267) / `cumulative_minutes_played`(117172)
 
 ---
 
@@ -402,14 +383,26 @@ home_recoveries = sum(p.ball_recoveries or 0 for p in raw.home_players)
 
 ---
 
-## 八、与 API-Football 对比
+## 八、数据归档说明（2026-06-08 新增）
+
+每场比赛采集后，`data/raw/{match_id}/` 目录下保存两份 JSON：
+
+| 文件 | 内容 | 说明 |
+|------|------|------|
+| `raw_api.json` | SportMonks API 完整原始 JSON | 含 envelope（`data`/`subscription`/`rate_limit`/`timezone`），**所有 type_id 完整保留**，未映射字段也不会丢失 |
+| `raw_data.json` | 映射后的结构化数据 | 仅包含 `PLAYER_STAT_MAP` 和 `FIXTURE_STAT_MAP` 中已映射的字段，dataclass 序列化格式（含 `_type` 标记） |
+
+> **使用场景**：发现现有指标不够用时，直接从 `raw_api.json` 查看完整原始数据，确认字段可用后新增映射，重新拉取即可进入 `raw_data.json`。
+
+---
+
+## 九、与 API-Football 对比
 
 | 维度 | API-Football | SportMonks |
 |------|:---:|:---:|
 | 请求次数 | 5 次并行 | **1 次** |
-| 球队统计项 | ~20 | 44 |
-| 球员统计项(已采集) | ~15 | **49** |
-| 球员统计项(API 返回) | — | 66 |
+| 球队统计项 | ~20 | 45 |
+| 球员统计项 | ~15 | **66 (100%)** |
 | xG (球员级) | 部分有 | ✅ |
 | 球权回收 | ❌ | ✅ |
 | 绝佳机会 | ❌ | ✅ |
@@ -419,4 +412,4 @@ home_recoveries = sum(p.ball_recoveries or 0 for p in raw.home_players)
 
 ---
 
-*更新时间: 2026-06-07 | 数据来源: SportMonks V3 API + 官方文档 + fixture 19683241 实测*
+*更新时间: 2026-06-08 | 数据来源: SportMonks V3 API + 官方文档 + fixture 19683241 实测*

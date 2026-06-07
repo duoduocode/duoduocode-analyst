@@ -35,7 +35,7 @@ FIXTURE_STAT_MAP: dict[int, str] = {
     79: "Assists",            88: "Goals Conceded",
     56: "Fouls",              84: "Yellow Cards",
     83: "Red Cards",          59: "Substitutions",
-    87: "Injuries",
+    87: "Injuries",          1605: "Duels Won %",
 }
 
 PLAYER_STAT_MAP: dict[int, str] = {
@@ -72,6 +72,28 @@ PLAYER_STAT_MAP: dict[int, str] = {
     27276: "duels_won_pct",      # 对抗成功率
     111: "penalties_scored",     # 点球进球
     27272: "back_passes",        # 回传
+    # 2026-06-08: 门将专属 + 长传 (ref: raw_api.json 实测)
+    88: "goals_conceded",            # 球队失球(在场时)
+    103: "punches",                  # 门将击球
+    104: "saves_inside_box",         # 禁区内扑救
+    584: "good_high_claim",          # 成功摘高球
+    1535: "goalkeeper_goals_conceded",  # 门将失球
+    48997: "error_lead_to_shot",     # 导致射门的失误
+    122: "long_balls",               # 长传次数
+    123: "long_balls_won",           # 成功长传
+    27270: "long_balls_won_pct",     # 长传成功率 %
+    # 2026-06-08: 最后一批补全 — 覆盖到100%
+    41: "shots_off",                 # 射偏
+    51: "offsides",                  # 越位
+    58: "shots_blocked",             # 被封堵射门
+    94: "dispossessed",              # 被抢断
+    114: "penalties_committed",      # 送点
+    581: "big_chances_missed",       # 错失绝佳机会
+    1491: "duels_lost",              # 输掉对抗
+    1533: "crosses_accuracy",        # 传中成功率 %
+    27266: "aerials_lost",           # 输掉空中对抗
+    27267: "tackles_won",            # 成功抢断
+    117172: "cumulative_minutes_played",  # 赛季累计出场时间
 }
 
 
@@ -165,6 +187,28 @@ class PlayerStats:
     passes_accurate: int = 0
     duels_won_pct: float = 0.0
     back_passes: int = 0
+    # 门将专属 + 长传
+    goals_conceded: int = 0
+    punches: int = 0
+    saves_inside_box: int = 0
+    good_high_claim: int = 0
+    goalkeeper_goals_conceded: int = 0
+    error_lead_to_shot: int = 0
+    long_balls: int = 0
+    long_balls_won: int = 0
+    long_balls_won_pct: float = 0.0
+    # 2026-06-08: 最后一批补全 — 覆盖到 100%
+    shots_off: int = 0
+    offsides: int = 0
+    shots_blocked: int = 0
+    dispossessed: int = 0
+    penalties_committed: int = 0
+    big_chances_missed: int = 0
+    duels_lost: int = 0
+    crosses_accuracy: float = 0.0
+    aerials_lost: int = 0
+    tackles_won: int = 0
+    cumulative_minutes_played: int = 0
 
 
 @dataclass
@@ -261,6 +305,7 @@ class SportMonksClient:
         self.base_url = config.get("base_url", "https://api.sportmonks.com/v3/football")
         self._session = requests.Session()
         self._session.trust_env = False
+        self.last_raw_full: dict = {}  # 最近一次 API 请求的完整原始 JSON
 
     def _get(self, endpoint: str, params: dict = None) -> dict:
         url = f"{self.base_url}{endpoint}"
@@ -272,6 +317,7 @@ class SportMonksClient:
         data = resp.json()
         if data.get("error"):
             raise RuntimeError(f"SportMonks API error: {data['error']}")
+        self.last_raw_full = data  # 保存完整原始 JSON（含 data/error 等 envelope）
         return data.get("data", data)
 
     def get_fixture_with_details(self, match_id: int) -> dict:
@@ -388,6 +434,8 @@ def _parse_player_from_lineup(lu: dict) -> PlayerStats:
     is_substitute = type_id == 12
     formation_field = lu.get("formation_field", "")
     photo_url = lu.get("player", {}).get("image_path", "")
+    if not photo_url:
+        photo_url = f"https://cdn.sportmonks.com/images/soccer/players/{player_id % 32}/{player_id}.png"
 
     parsed = _parse_player_detail_stats(lu.get("details", []))
     rating = parsed.get("rating")
@@ -453,6 +501,28 @@ def _parse_player_from_lineup(lu: dict) -> PlayerStats:
         passes_accurate=_safe_int(parsed.get("passes_accurate")),
         duels_won_pct=_safe_float(parsed.get("duels_won_pct")),
         back_passes=_safe_int(parsed.get("back_passes")),
+        # 门将专属 + 长传
+        goals_conceded=_safe_int(parsed.get("goals_conceded")),
+        punches=_safe_int(parsed.get("punches")),
+        saves_inside_box=_safe_int(parsed.get("saves_inside_box")),
+        good_high_claim=_safe_int(parsed.get("good_high_claim")),
+        goalkeeper_goals_conceded=_safe_int(parsed.get("goalkeeper_goals_conceded")),
+        error_lead_to_shot=_safe_int(parsed.get("error_lead_to_shot")),
+        long_balls=_safe_int(parsed.get("long_balls")),
+        long_balls_won=_safe_int(parsed.get("long_balls_won")),
+        long_balls_won_pct=_safe_float(parsed.get("long_balls_won_pct")),
+        # 2026-06-08: 最后一批补全 — 覆盖到100%
+        shots_off=_safe_int(parsed.get("shots_off")),
+        offsides=_safe_int(parsed.get("offsides")),
+        shots_blocked=_safe_int(parsed.get("shots_blocked")),
+        dispossessed=_safe_int(parsed.get("dispossessed")),
+        penalties_committed=_safe_int(parsed.get("penalties_committed")),
+        big_chances_missed=_safe_int(parsed.get("big_chances_missed")),
+        duels_lost=_safe_int(parsed.get("duels_lost")),
+        crosses_accuracy=_safe_float(parsed.get("crosses_accuracy")),
+        aerials_lost=_safe_int(parsed.get("aerials_lost")),
+        tackles_won=_safe_int(parsed.get("tackles_won")),
+        cumulative_minutes_played=_safe_int(parsed.get("cumulative_minutes_played")),
     )
 
 
@@ -679,15 +749,16 @@ def fetch_all(match_id: int, config: dict) -> RawMatchData:
         venue_info=data.get("venue") if isinstance(data.get("venue"), dict) else None,
     )
 
-    _save_raw_data(raw)
+    _save_raw_data(raw, client.last_raw_full)
     return raw
 
 
-def _save_raw_data(raw: RawMatchData):
+def _save_raw_data(raw: RawMatchData, raw_api: dict = None):
     import dataclasses
     base = Path("data/raw") / str(raw.match_id)
     base.mkdir(parents=True, exist_ok=True)
 
+    # 1. 保存映射后的结构化数据
     def _serialize(obj):
         if dataclasses.is_dataclass(obj):
             result = {"_type": type(obj).__name__}
@@ -711,6 +782,11 @@ def _save_raw_data(raw: RawMatchData):
     data = _serialize(raw)
     with open(base / "raw_data.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+
+    # 2. 保存 SportMonks API 完整原始 JSON（含所有未映射字段，方便数据对比与存档）
+    if raw_api:
+        with open(base / "raw_api.json", "w", encoding="utf-8") as f:
+            json.dump(raw_api, f, ensure_ascii=False, indent=2, default=str)
 
 
 def load_cached_raw(match_id: int) -> RawMatchData:

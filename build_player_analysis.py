@@ -127,7 +127,7 @@ def generate_player_summaries(
                         {"role": "user", "content": user_prompt},
                     ],
                     "temperature": llm_config.get("temperature", 0.7),
-                    "max_tokens": llm_config.get("max_tokens", 3200),
+                    "max_tokens": llm_config.get("max_tokens", 4800),
                 },
                 timeout=60,
             )
@@ -167,7 +167,7 @@ def generate_player_summaries(
                             if pn_norm in nm_norm or nm_norm in pn_norm:
                                 matched = p["name"]; break
                     if matched:
-                        results[matched] = comment[:90]
+                        results[matched] = comment[:130]
             return results
         except Exception as e:
             print(f"  LLM attempt {attempt + 1} failed: {e}")
@@ -188,6 +188,27 @@ _CARD_STYLE = {
     "card_bg": "#142440", "text": "#e0e8f8",
     "dim": "#7a8aaa", "tag_bg": "#2d6df6",
 }
+
+# ═══════════════════════════════════════════════════════════════
+# Image helpers: pre-fetch and encode as base64 data URI
+# (bypasses Playwright headless Chrome CDN blocking issues)
+# ═══════════════════════════════════════════════════════════════
+
+def _img_to_data_uri(url: str) -> str:
+    """Fetch image from URL and return as base64 data URI. Returns empty string on failure."""
+    if not url:
+        return ""
+    try:
+        session = requests.Session(); session.trust_env = False
+        resp = session.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        resp.raise_for_status()
+        import base64
+        ct = resp.headers.get('Content-Type', 'image/png')
+        b64 = base64.b64encode(resp.content).decode('ascii')
+        return f"data:{ct};base64,{b64}"
+    except Exception:
+        return ""
+
 
 _INTEGER_METRICS = {
     "传球","触球","回传","三区传球","射门","射正","进球","助攻","抢断","拦截",
@@ -259,12 +280,21 @@ def _build_player_sections(raw_by_detector, top3_by_detector, player_name, team_
         if player_result is None: continue
 
         metrics = []
+        event_labels = []
         evidence = player_result.evidence
         if evidence:
-            sorted_ev = sorted(evidence.items(),
-                              key=lambda kv: abs(kv[1].get("contrib", kv[1].get("raw", 0)))
-                              if isinstance(kv[1], dict) else abs(float(kv[1])) if isinstance(kv[1], (int, float)) else 0,
-                              reverse=True)
+            # Extract event bonus labels (事件加成) — display as tags, not metrics
+            ev_bonus = evidence.get("事件加成")
+            if isinstance(ev_bonus, list):
+                event_labels = ev_bonus
+            elif isinstance(ev_bonus, str) and ev_bonus:
+                event_labels = [s.strip() for s in ev_bonus.split(",") if s.strip()]
+
+            sorted_ev = sorted(
+                ((k, v) for k, v in evidence.items() if k not in ("事件加成", "关键标签")),
+                key=lambda kv: abs(kv[1].get("contrib", kv[1].get("raw", 0)))
+                if isinstance(kv[1], dict) else abs(float(kv[1])) if isinstance(kv[1], (int, float)) else 0,
+                reverse=True)
             full_team_dict = raw_by_detector.get(dname, {})
             if isinstance(full_team_dict, list):
                 all_list = sorted(full_team_dict, key=lambda r: -r.score)
@@ -285,6 +315,7 @@ def _build_player_sections(raw_by_detector, top3_by_detector, player_name, team_
             "tag": DETECTOR_TAGS.get(dname, dname),
             "score": round(player_result.score, 2),
             "metrics": metrics,
+            "event_labels": event_labels,
         })
     return sections
 
@@ -303,6 +334,10 @@ def render_player_card(
     n_sections = len(sections)
     if n_sections == 0: return
 
+    # Pre-fetch images as base64 data URIs (bypass CDN blocking in headless Chrome)
+    photo_data = _img_to_data_uri(photo_url)
+    logo_data = _img_to_data_uri(team_logo_url)
+
     cards_html = ""
     for sec in sections:
         metrics = sec.get("metrics", [])
@@ -312,14 +347,19 @@ def render_player_card(
             '<tr><td class="mn">{}</td><td class="mv">{}</td><td class="mr">{}</td><td class="mo">{}</td></tr>'.format(
                 mname, _card_fmt_val(mval, mname), tr, otr)
             for (mname, mval, tr, otr) in metrics)
+        ev_tags = ""
+        ev_lbls = sec.get("event_labels", [])
+        if ev_lbls:
+            ev_tags = '<span class="evt-sep"></span>' + ''.join(
+                '<span class="evt">{}</span>'.format(ev) for ev in ev_lbls)
         cards_html += (
-            '<div class="tc"><div class="th"><span class="tb">{tag}</span></div>'
+            '<div class="tc"><div class="th"><span class="tb">{tag}</span>{ev_tags}</div>'
             '<table class="mt"><thead><tr><th>指标</th><th>值</th><th>队</th><th>场</th></tr></thead>'
             '<tbody>{rows}</tbody></table></div>'
-        ).format(tag=sec["tag"], rows=rows)
+        ).format(tag=sec["tag"], ev_tags=ev_tags, rows=rows)
 
-    ph = '<img src="{}">'.format(photo_url) if photo_url else ""
-    lo = '<img src="{}">'.format(team_logo_url) if team_logo_url else ""
+    ph = '<img src="{}">'.format(photo_data) if photo_data else ""
+    lo = '<img src="{}">'.format(logo_data) if logo_data else ""
 
     html = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -338,6 +378,8 @@ body{{width:740px;font-family:"Microsoft YaHei","PingFang SC",sans-serif;backgro
 .tc{{background:{card_bg};border-radius:10px;overflow:hidden;border:1px solid {p}14}}
 .th{{padding:9px 14px;background:{p}0a;border-bottom:1px solid {p}18}}
 .tb{{display:inline-block;background:{tag_bg};color:#fff;font-size:13px;font-weight:700;padding:4px 12px;border-radius:4px;letter-spacing:.3px}}
+.evt-sep{{display:inline-block;width:1px;height:14px;background:{dim}33;margin:0 6px;vertical-align:middle}}
+.evt{{display:inline-block;color:{ac};font-size:11px;font-weight:600;padding:2px 8px;border:1px solid {ac}44;border-radius:3px;margin-left:4px;vertical-align:middle;line-height:1.4}}
 .mt{{width:100%;border-collapse:collapse}}
 .mt th{{font-size:11px;color:{dim};text-align:left;padding:4px 12px 4px 14px;font-weight:600;border-bottom:1px solid {p}10}}
 .mt th:nth-child(2){{text-align:center;width:48px;padding:4px 8px}}
@@ -362,7 +404,7 @@ body{{width:740px;font-family:"Microsoft YaHei","PingFang SC",sans-serif;backgro
         bg=s["bg"], text=s["text"], p=s["primary"], ac=s["accent"],
         dim=s["dim"], card_bg=s["card_bg"], tag_bg=s["tag_bg"],
         ph=ph, name=player_name, num=jersey_number, min=minutes,
-        summ=llm_summary[:100] if llm_summary else "",
+        summ=llm_summary[:130] if llm_summary else "",
         cards=cards_html, lo=lo, team=team_name,
     )
 
@@ -505,6 +547,8 @@ def build_excel(results, all_players, hname, aname, home_color, away_color,
                 summary = summaries.get(r.name, "")
                 score = round(r.score, 2)
                 for ev_key, ev_val in r.evidence.items():
+                    if ev_key in ("事件加成", "关键标签"):
+                        continue
                     raw_val = ev_val.get("raw", ev_val) if isinstance(ev_val, dict) else ev_val
                     rows_data.append([actual_team, r.name,
                                      info.get('minutes', 0), tag, score,
@@ -720,10 +764,12 @@ def process_match(match_id, llm_config, dry_run=False):
     card_dir = f"output/{safe_dir}/player_cards"
     os.makedirs(card_dir, exist_ok=True)
 
-    # Generate cards — all players with >0 minutes
+    # Generate cards — all outfield players with >0 minutes, skip GKs
     card_count = 0
     for k, info in sorted(all_players.items(), key=lambda x: -x[1]['minutes']):
         if info['minutes'] <= 0:
+            continue
+        if info.get('position', '') in ('门将', 'G'):
             continue
         sections = build_sections(results, hname, aname, info['name'], info['team'])
         if not sections:
