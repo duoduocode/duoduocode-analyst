@@ -47,14 +47,17 @@ python run.py --league 732 --date 2026-06-14       # 批量生成某日全部比
 duoduocode-analyst/
 ├── config.yaml                          # SportMonks API Token + LLM 配置
 ├── config.example.yaml
-├── run.py                               # 入口脚本
+├── run.py                               # 入口脚本（比赛报告）
+├── run_player_v6.py                    # ★ v6 球员贡献入口（Excel + JSON + LLM分析）
+├── generate_cards_v6.py                # ★ v6 球员贡献卡片生成（Playwright → PNG）
 ├── AGENTS.md                            # 本文档
 ├── prompts/                             # Prompt 模板 (Jinja2+YAML)
 │   ├── narrative.yaml                   # ★ 信号驱动叙事模板（替代旧9模块）
-│   ├── cover.yaml / contrast.yaml / ... # 旧模板（已不再使用，可删除）
+│   ├── player_analysis.yaml            # ★ v6 球员分析提示词（张佳玮+内德风格）
+│   ├── player_summary.yaml            # 旧版张佳玮短评模板（已停用）
 │   ├── momentum.yaml / tactics.yaml / mvp.yaml
 │   ├── hidden_mvp.yaml / black_hole.yaml
-│   └── subs.yaml / replay.yaml
+│   └── subs.yaml / replay.yaml / contrast.yaml / cover.yaml
 ├── src/
 │   ├── collector/
 │   │   └── api_client.py               # SportMonks V3 客户端 + type_id 映射 + 全量数据解析
@@ -63,7 +66,9 @@ duoduocode-analyst/
 │   │   ├── ratings.py                  # 球员贡献分 + MVP/隐性MVP/黑洞分类
 │   │   ├── simulator.py                # 蒙特卡洛 xG 模拟
 │   │   ├── trends.py                   # ★ 趋势分析：增量计算/窗口聚合/斜率/转折点
-│   │   └── signals.py                  # ★ 36 个信号检测器 + Top N 筛选
+│   │   ├── signals.py                  # ★ 36 个信号检测器 + Top N 筛选
+│   │   ├── key_events.py               # ★ 统一关键事件判定（首开/绝杀/制胜/点球大战等）
+│   │   └── player_insights_v6.py       # ★ v6 球员贡献检测引擎（七维模型 + LLM分析）
 │   ├── composer/
 │   │   ├── prompt_loader.py            # YAML 加载 + Jinja2 渲染（不变）
 │   │   └── data_builder.py             # ★ 信号驱动叙事组装（替代旧9模块builder）
@@ -78,14 +83,19 @@ duoduocode-analyst/
 │   │   ├── subs.py                     # 换人对比柱状图
 │   │   └── xg_hist.py                  # xG 模拟分布图
 │   ├── reporter/
-│   │   └── build_report.py            # ★ 动态章节报告拼装（基于LLM输出+信号）
+│   │   ├── build_report.py            # ★ 动态章节报告拼装（基于LLM输出+信号）
+│   │   └── player_excel.py            # ★ v6 球员贡献 Excel 9-sheet 导出
 │   └── player_names.py                # 球员中英文名映射表
 ├── design/                             # 产品文档
 │   ├── SportMonks统计指标全集.md        # 全部可用的球队+球员+事件指标 (type_id映射)
-│   └── SportMonks_Fixture_Include全集.md # SportMonks 全部 include 参数说明
+│   ├── SportMonks_Fixture_Include全集.md # SportMonks 全部 include 参数说明
+│   ├── 球员贡献检测器方案-v6.md          # ★ v6 两层叙事模型设计文档
+│   └── 关键事件判定方案.md               # 统一关键事件判定规则
 ├── data/
 │   ├── raw/{match_id}/raw_data.json    # 解析后的结构化数据（含 trends/periods/coaches）
 │   └── computed/{match_id}.json        # 计算后指标 + 检测到的信号
+│   └── computed/{match_id}_players_v6.json # ★ v6 球员贡献 JSON
+│   └── computed/{match_id}_players_v6.xlsx # ★ v6 球员贡献 Excel (9 sheets)
 └── output/{match_id}_{HOME}_vs_{AWAY}/
     ├── images/*.png                    # 7 张图表
     ├── report.md                       # 完整图文报告
@@ -427,8 +437,101 @@ python -c "from src.generator.llm_client import LLMClient; import yaml; c=LLMCli
 ## 11. 多环境迁移清单
 
 1. `git clone` 本项目
-2. `pip install requests pyyaml matplotlib mplsoccer numpy scipy openai markdown jinja2`
-3. 设置环境变量 `SPORTMONKS_API_TOKEN` 和 `DEEPSEEK_API_KEY`（或直接写入 config.yaml）
-4. `python -c "from src.collector.api_client import SportMonksClient; print('OK')"` → 验证导入
-5. `python run.py --match 19683241 --dry-run` → 验证全管线（采集+指标+趋势+信号）
-6. `python run.py --match 19683241` → 完整生成（含 LLM 叙事 + 图表）
+2. `pip install requests pyyaml matplotlib mplsoccer numpy scipy openai markdown jinja2 openpyxl playwright`
+3. `playwright install chromium`
+4. 设置环境变量 `SPORTMONKS_API_TOKEN` 和 `DEEPSEEK_API_KEY`（或直接写入 config.yaml）
+5. `python -c "from src.collector.api_client import SportMonksClient; print('OK')"` → 验证导入
+6. `python run.py --match 19683241 --dry-run` → 验证全管线（采集+指标+趋势+信号）
+7. `python run.py --match 19683241` → 完整生成（含 LLM 叙事 + 图表）
+8. `python run_player_v6.py 19683241` → 生成球员贡献 Excel + JSON
+9. `python generate_cards_v6.py 19683241` → 生成全体球员 PNG 卡片
+
+---
+
+## 12. 球员贡献检测器 v6
+
+### 12.1 概述
+
+v6 采用**两层叙事模型**，从 66 项球员级指标出发，输出七维贡献向量 + LLM 球员分析。
+
+**设计文档**：[`design/球员贡献检测器方案-v6.md`](design/球员贡献检测器方案-v6.md)
+
+### 12.2 快速启动
+
+```bash
+# 完整管线（Excel + JSON）
+python run_player_v6.py                         # 三场默认比赛
+python run_player_v6.py 19683241                # 单场
+
+# 生成卡片 PNG（依赖已生成的 JSON）
+python generate_cards_v6.py 19683241            # 全体球员
+python generate_cards_v6.py 19683241 --key-only # 仅关键球员
+python generate_cards_v6.py 19683241 --player "Declan Rice"  # 指定球员
+```
+
+### 12.3 Layer 1：七维贡献模型
+
+| 维度 | 简称 | 副标题 | 指标数 | 核心正指标 |
+|------|------|--------|:---:|------|
+| C1 进攻 | 进攻 | 创造机会，转化进球 | 15 | goals, xg, assists, shots_on, big_chances_created |
+| C2 推进 | 推进 | 构建攻势，推进阵地 | 12 | passes_final_third, dribbles_success, crosses |
+| C3 控制 | 控制 | 掌控节奏，寻找机会 | 8 | passes_total, passes_accuracy, touches |
+| C4 防守 | 防守 | 抢断拦截，阻止得分 | 10 | tackles, clearances, blocked_shots, ball_recoveries |
+| C5 对抗 | 对抗 | 积极拼抢，拿下球权 | 13 | duels_won, aerials_won, ball_recoveries |
+| C6 关键事件 | — | — | 8 种事件 | 绝杀(+4.5), 制胜球(+4.0), 首开记录(+3.0), 点球大战进球(+1.5) |
+| C7 门将 | — | — | 4-D per-90 | saves, xgot_faced, punches |
+
+**算法**：`zscore_composite_v6()` — 每个指标组内 Z-score × 权重 → 求和 → `tanh(x/6.0)*6.0` 软封顶。
+
+### 12.4 Layer 2：LLM 球员分析
+
+**分析范围**：所有出场 ≥15 分钟的球员（含门将），分两类：
+
+| 类型 | 定义 | 交给 LLM 的数据 |
+|------|------|---------------|
+| **关键球员** | 任一项 C1-C5 队内排名 ≤5 且 zscore > 0 | 仅优势维度指标 |
+| **其他球员** | 非关键 + 门将 | 全部 C1-C5 维度指标 |
+
+**提示词**：[`prompts/player_analysis.yaml`](prompts/player_analysis.yaml)
+- 风格：张佳玮的诗意画面 + 内德的数据洞见
+- 要求：引用具体指标数值、结合关键事件和比赛结果、不贬低、90-150 字
+- 分批调用：每批 ≤15 球员，动态 max_tokens
+- 回退：LLM 不可用时退回余弦相似度角色推断（14 种原型角色）
+
+### 12.5 输出物
+
+| 格式 | 路径 | 内容 |
+|------|------|------|
+| **Excel** | `data/computed/{id}_players_v6.xlsx` | 9 sheets: 概要 + C1-C5 明细(含队排/场排) + C6 事件 + C7 门将 + 角色叙事 |
+| **JSON** | `data/computed/{id}_players_v6.json` | 结构化数据，供卡片/下游消费 |
+| **PNG 卡片** | `output/{id}_.../cards/{player}.png` | 头像 + 姓名 + 事件 + LLM 评语 + 七维卡片网格 + 排名高亮 |
+
+### 12.6 调试
+
+```bash
+# 查看 JSON 数据结构
+python -c "import json; d=json.load(open('data/computed/19683241_players_v6.json','r',encoding='utf-8')); p=d[0]; print(p['name'], list(p['contributions'].keys()), p.get('llm_summary','')[:60])"
+
+# 查看关键识别逻辑触发情况
+python -c "
+import json; d=json.load(open('data/computed/19683241_players_v6.json','r',encoding='utf-8'))
+for p in d:
+    for ck in ['C1','C2','C3','C4','C5']:
+        c = p['contributions'].get(ck,{})
+        if c.get('rank',99) <= 5 and c.get('zscore',0) > 0:
+            print(f\"{p['name']} {ck}: rank={c['rank']} z={c['zscore']}\")
+            break
+"
+```
+
+### 12.7 核心文件
+
+| 文件 | 行数 | 职责 |
+|------|:---:|------|
+| `src/engine/player_insights_v6.py` | ~1350 | 核心引擎：数据结构/七维计算/LLM 调用/排名 |
+| `src/engine/key_events.py` | ~210 | 统一关键事件判定（首开/绝杀/制胜/点球大战） |
+| `src/reporter/player_excel.py` | ~480 | Excel 9-sheet 导出 |
+| `src/generator/llm_client.py` | ~95 | DeepSeek API（OpenAI SDK + HTTP 回退） |
+| `run_player_v6.py` | ~140 | 入口脚本 |
+| `generate_cards_v6.py` | ~460 | Playwright HTML→PNG 卡片生成 |
+| `prompts/player_analysis.yaml` | ~45 | LLM 分析提示词模板 |

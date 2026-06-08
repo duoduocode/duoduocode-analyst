@@ -9,6 +9,7 @@ from src.collector.api_client import (
     RawMatchData,
 )
 from src.engine.trends import TrendAnalysis, TrendSeries
+from src.engine.key_events import detect_key_events
 
 EPSILON = 0.001
 
@@ -1582,141 +1583,44 @@ def _compute_king_scores(raw: RawMatchData) -> dict:
         pct = (p.tackles_won_pct or 0) / 100
         return t * pct
 
-    def _find_winning_goal_scorer():
-        """Last goal that put the eventual winner ahead for good."""
-        if raw.score.home == raw.score.away:
-            return None
-        winner_is_home = raw.score.home > raw.score.away
-        sorted_goals = sorted(goals, key=lambda g: (g.period_id or 0, g.time_elapsed))
-        h, a = 0, 0
-        last_winner_goal = None
-        for g in sorted_goals:
-            is_home = g.team_id == raw.home_team.id
-            if is_home:
-                h += 1
-            else:
-                a += 1
-            # Check: does this goal give the eventual winner their winning margin?
-            if winner_is_home and h > a:
-                last_winner_goal = g.player_name
-            elif not winner_is_home and a > h:
-                last_winner_goal = g.player_name
-        return last_winner_goal
+    # ── Normalize goals/subs for unified key event detection ──
+    goal_dicts = [
+        {
+            "player_name": g.player_name,
+            "team_id": g.team_id,
+            "time_elapsed": g.time_elapsed,
+            "period_id": g.period_id,
+            "is_penalty": g.detail == "goal_penalty",
+        }
+        for g in goals
+    ]
+    sub_dicts = [
+        {
+            "player_in": s.assist_name,  # SportMonks: assist_name = 换上球员
+            "player_out": s.player_name,  # player_name = 换下球员
+            "minute": s.time_elapsed,
+            "time_elapsed": s.time_elapsed,
+        }
+        for s in subs
+    ]
+    # Build period list for extra-time detection
+    period_dicts = [
+        {"sort_order": pd.sort_order, "description": pd.description}
+        for pd in raw.periods
+    ]
 
-    def _get_match_end_minute():
-        """Determine actual match end minute based on periods.
-        If extra time (sort_order 3-4) exists, end = 120.
-        If penalty shootout only, end = 120 (football play ends at extra time).
-        Otherwise, end = 90.
-        """
-        max_sort = 0
-        for pd in raw.periods:
-            if pd.sort_order > max_sort:
-                max_sort = pd.sort_order
-        if max_sort >= 3:
-            return 120  # extra time or penalties
-        return 90
+    ke = detect_key_events(
+        goal_dicts, sub_dicts,
+        raw.home_team.id, raw.away_team.id,
+        raw.score.home, raw.score.away,
+        period_dicts,
+    )
 
-    def _find_equalizer_scorer():
-        """
-        Equalizer = tying goal scored in the LAST 5 MINUTES of the match
-         (including extra time), and the score stays tied to the end.
-        """
-        if raw.score.home != raw.score.away or raw.score.home == 0:
-            return None
-        sorted_goals = sorted(goals, key=lambda g: (g.period_id or 0, g.time_elapsed))
-        if not sorted_goals:
-            return None
-        end_minute = _get_match_end_minute()
-        # Track score progression, find the goal that tied it
-        h, a = 0, 0
-        equalizer = None
-        for g in sorted_goals:
-            is_home = g.team_id == raw.home_team.id
-            if is_home:
-                h += 1
-            else:
-                a += 1
-            if h == a:
-                # Only count if the goal is in the last 5 minutes
-                if g.time_elapsed >= end_minute - 5:
-                    equalizer = g.player_name
-        return equalizer
-
-    def _find_super_sub_scorers():
-        """Substitutes who scored within 5 min of coming on."""
-        result = {}
-        for sub in subs:
-            sub_in = sub.assist_name  # 换上球员
-            sub_time = sub.time_elapsed
-            if not sub_in:
-                continue
-            for goal in goals:
-                if goal.player_name and goal.player_name.strip().lower() == sub_in.strip().lower():
-                    diff = goal.time_elapsed - sub_time
-                    if 1 <= diff <= 5:
-                        result[sub_in] = diff
-        return result
-
-    winning_scorer = _find_winning_goal_scorer()
-    equalizer_scorer = _find_equalizer_scorer()
-    super_sub_map = _find_super_sub_scorers()
-
-    def _find_first_goal_scorer():
-        """Winner's first goal scorer (only for non-draw matches)."""
-        if raw.score.home == raw.score.away:
-            return None
-        winner_is_home = raw.score.home > raw.score.away
-        sorted_goals = sorted(goals, key=lambda g: (g.period_id or 0, g.time_elapsed))
-        if not sorted_goals:
-            return None
-        # First goal scored by the eventual winner
-        h, a = 0, 0
-        for g in sorted_goals:
-            is_home = g.team_id == raw.home_team.id
-            if is_home:
-                h += 1
-            else:
-                a += 1
-            if winner_is_home and h > a:
-                return g.player_name
-            elif not winner_is_home and a > h:
-                return g.player_name
-        return None
-
-    def _find_late_winner_scorer():
-        """Last goal that won the game by 1 margin, scored in the final 5 min of normal/extra time."""
-        if raw.score.home == raw.score.away:
-            return None
-        goal_diff = abs(raw.score.home - raw.score.away)
-        if goal_diff != 1:
-            return None
-        # Determine actual match end (90 or 120) based on period structure
-        end_minute = _get_match_end_minute()
-        # Match ended without extra time, find latest goal within 5 min of end
-        sorted_goals = sorted(goals, key=lambda g: (g.period_id or 0, g.time_elapsed))
-        if not sorted_goals:
-            return None
-        # Find the goal that made the winning margin
-        winner_is_home = raw.score.home > raw.score.away
-        h, a = 0, 0
-        last_winner_margin_goal = None
-        for g in sorted_goals:
-            is_home = g.team_id == raw.home_team.id
-            if is_home:
-                h += 1
-            else:
-                a += 1
-            if winner_is_home and h > a and (h - a) == 1:
-                last_winner_margin_goal = g
-            elif not winner_is_home and a > h and (a - h) == 1:
-                last_winner_margin_goal = g
-        if last_winner_margin_goal and last_winner_margin_goal.time_elapsed >= end_minute - 5:
-            return last_winner_margin_goal.player_name
-        return None
-
-    first_goal_scorer = _find_first_goal_scorer()
-    late_winner_scorer = _find_late_winner_scorer()
+    winning_scorer = ke.winning_goal_scorer
+    equalizer_scorer = ke.equalizer_scorer
+    super_sub_map = ke.super_sub_scorers
+    first_goal_scorer = ke.first_goal_scorers[0] if ke.first_goal_scorers else None
+    late_winner_scorer = ke.late_winner_scorer
 
     for pp, tn in [(raw.home_players, raw.home_team.name), (raw.away_players, raw.away_team.name)]:
         players = []

@@ -26,6 +26,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
+from src.engine.key_events import detect_key_events, KeyEventResult
+
 
 # ═══════════════════════════════════════════════════════════════
 # Position Classification
@@ -800,31 +802,38 @@ def compute_event_bonuses(
     score_home: int,
     score_away: int,
     end_minute: int = 90,
+    periods: list[dict] | None = None,
 ) -> dict[str, EventBonuses]:
     """
     Parse events to determine event bonuses for each player.
-    events: raw event dicts with keys: type_id or event_type, player_name, related_player_name, minute/period_id, participant_id
+    Uses unified key_events module for first_goal / equalizer / winning_goal / late_winner.
+    events: raw event dicts with keys: type_id or event_type, player_name, related_player_name, time_elapsed, period_id, participant_id
     """
-    goals = []
-    subs = []
+    goals: list[dict] = []
+    subs: list[dict] = []
     for e in events:
-        # Support both type_id (integer) and event_type/detail (string) formats
         tid = e.get("type_id", 0)
         et = e.get("event_type", "")
         detail = e.get("detail", "")
-        pn = e.get("player_name", "")
-        rn = e.get("related_player_name", "")
-        m = e.get("minute", 0) or e.get("time_elapsed", 0)
+        pn = (e.get("player_name") or "").strip()
+        rn = (e.get("related_player_name") or "").strip()
+        time_elapsed = e.get("time_elapsed", 0) or e.get("minute", 0) or 0
         team_id = e.get("participant_id", 0) or e.get("team_id", 0)
+        period_id = e.get("period_id", 0) or 1
 
         is_goal = tid in (14, 16) or (et == "Goal" and detail in ("goal", "goal_penalty"))
         is_penalty_goal = tid == 16 or detail == "goal_penalty"
         is_sub = tid == 18 or et == "subst"
 
         if is_goal:
-            goals.append({"player_name": pn, "team_id": team_id, "minute": m, "is_penalty": is_penalty_goal})
+            goals.append({
+                "player_name": pn, "team_id": team_id,
+                "time_elapsed": time_elapsed, "period_id": period_id,
+                "is_penalty": is_penalty_goal,
+            })
         elif is_sub:
-            subs.append({"player_name": pn, "related_name": rn, "minute": m})
+            subs.append({"player_in": pn, "player_out": rn,
+                         "minute": time_elapsed, "time_elapsed": time_elapsed})
 
     bonuses: dict[str, EventBonuses] = {}
 
@@ -835,72 +844,25 @@ def compute_event_bonuses(
                 return bonuses[k]
         eb = EventBonuses()
         if name:
-            bonuses[name] = eb
+            bonuses[name.strip()] = eb
         return eb
 
-    is_draw = score_home == score_away
-    home_wins = score_home > score_away
-    sg = sorted(goals, key=lambda g: g["minute"])
-    late_threshold = end_minute - 5
+    # ── Use unified key event detection ──
+    ke = detect_key_events(goals, subs, home_id, away_id, score_home, score_away, periods)
 
-    # Winning goal: the goal that put the winning team ahead for good
-    if not is_draw:
-        wh = home_wins
-        h = a = 0
-        last = None
-        for g in sg:
-            if g["team_id"] == home_id:
-                h += 1
-            else:
-                a += 1
-            if (wh and h > a) or (not wh and a > h):
-                last = g["player_name"]
-        if last:
-            eb = get_bonus(last)
-            eb.winning_goal = True
-            # Check if it's a late winner
-            for g in sg:
-                if g["player_name"] == last and g["minute"] >= late_threshold:
-                    eb.late_winner = True
-
-    # Equalizer: late equalizing goal in a non-draw match
-    if not is_draw and score_home + score_away > 0:
-        h = a = 0
-        eq = None
-        for g in sg:
-            if g["team_id"] == home_id:
-                h += 1
-            else:
-                a += 1
-            if h == a and g["minute"] >= late_threshold:
-                eq = g["player_name"]
-        if eq:
-            get_bonus(eq).equalizer = True
-
-    # First goal (for winning team)
-    if not is_draw and sg:
-        wh = home_wins
-        for g in sg:
-            if (wh and g["team_id"] == home_id) or (not wh and g["team_id"] == away_id):
-                get_bonus(g["player_name"]).first_goal = True
-                break
-
-    # Super sub: subbed on and scored/assisted within 5 minutes
-    for s in subs:
-        si = s["player_name"]
-        st = s["minute"]
-        if not si:
-            continue
-        for g in goals:
-            if g["player_name"] and g["player_name"].strip().lower() == si.strip().lower():
-                diff = g["minute"] - st
-                if 1 <= diff <= 5:
-                    get_bonus(si).super_sub = True
-
-    # Penalty goals
-    for g in sg:
-        if g.get("is_penalty"):
-            get_bonus(g["player_name"]).scored_penalty = True
+    # ── Apply results to bonuses ──
+    for name in ke.first_goal_scorers:
+        get_bonus(name).first_goal = True
+    if ke.equalizer_scorer:
+        get_bonus(ke.equalizer_scorer).equalizer = True
+    if ke.winning_goal_scorer:
+        get_bonus(ke.winning_goal_scorer).winning_goal = True
+    if ke.late_winner_scorer:
+        get_bonus(ke.late_winner_scorer).late_winner = True
+    for name in ke.penalty_scorers:
+        get_bonus(name).scored_penalty = True
+    for name in ke.super_sub_scorers:
+        get_bonus(name).super_sub = True
 
     return bonuses
 
@@ -1040,7 +1002,7 @@ def run_all_detectors(
         pl.sort(key=lambda p: -(p.sv(119) or 0))
 
     # Event bonuses
-    bonuses = compute_event_bonuses(events, home_id, away_id, score_home, score_away, end_minute)
+    bonuses = compute_event_bonuses(events, home_id, away_id, score_home, score_away, end_minute, None)
 
     # Add won_penalty bonus from player stats (penalties_won)
     for p in home_players + away_players:
