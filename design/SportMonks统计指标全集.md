@@ -8,7 +8,7 @@
 
 ## 一、球队级统计 (Fixture Statistics) — 45 项
 
-- 球队统计通过 `fixtures/{id}?include=statistics` 获取，使用 `FIXTURE_STAT_MAP` 映射。API 实际返回 39 项（零值指标如红牌/失球等仅在发生时返回）。另有 13 项 type_id 已映射但当前 API 不返回（详见 §1.2~§1.8 标注为"—" 的行）。
+- 球队统计通过 `fixtures/{id}?include=statistics` 获取，使用 `FIXTURE_STAT_MAP` 映射。API 实际返回 39 项（零值指标如红牌/失球等仅在发生时返回）。另有 **17 项** type_id 已映射但当前 API 不返回（（详见 §1.2~§1.8 标注为"—" 的行，完整替代方案见 §十）。
 
 ### 1.1 射门 (Shooting)
 
@@ -34,14 +34,14 @@
 | 80 | PASSES | 传球总次数 | ✅ | — |
 | 81 | SUCCESSFUL_PASSES | 成功传球 | ✅ | — |
 | 82 | SUCCESSFUL_PASSES_PERCENTAGE | 传球成功率 % | ✅ | CI 传球维度 |
-| 116 | ACCURATE_PASSES | 准确传球次数 | — | 已映射，API 不返回（用球员 `passes_accurate` 替代） |
+| 116 | ACCURATE_PASSES | 准确传球次数 | — | 已映射，API 不返回（P SUM: `passes_accurate`） |
 | 117 | KEY_PASSES | 关键传球 | ✅ | — |
 | 62 | LONG_PASSES | 长传 | ✅ | 长传比 |
-| 63 | SHORT_PASSES | 短传 | ✅ | — |
+| 63 | SHORT_PASSES | 短传 | ✅ | 部分比赛不返回，可用 `总传球-长传-传中` 近似 |
 | 98 | TOTAL_CROSSES | 传中总次数 | ✅ | — |
-| 99 | ACCURATE_CROSSES | 精准传中 | ✅ | — |
-| 124 | THROUGH_BALLS | 直塞球 | — | 已映射，API 不返回 |
-| 125 | THROUGH_BALLS_WON | 成功直塞球 | — | 已映射，API 不返回 |
+| 99 | ACCURATE_CROSSES | 精准传中 | ✅ | 部分比赛不返回（P SUM: `crosses_accurate`） |
+| 124 | THROUGH_BALLS | 直塞球 | — | 已映射，API 不返回（球员级无对应字段，无法替代） |
+| 125 | THROUGH_BALLS_WON | 成功直塞球 | — | 已映射，API 不返回（球员级无对应字段，无法替代） |
 
 ### 1.3 防守 (Defense)
 
@@ -49,23 +49,23 @@
 |--------:|-----------|--------|:--:|------|
 | 78 | TACKLES | 抢断 | ✅ | — |
 | 100 | INTERCEPTIONS | 拦截 | ✅ | — |
-| 66 | SUCCESSFUL_INTERCEPTIONS | 成功拦截 | — | 已映射，API 不返回 |
-| 101 | CLEARANCES | 解围 | — | 已映射，API 不返回（用球员 `clearances` 替代） |
+| 66 | SUCCESSFUL_INTERCEPTIONS | 成功拦截 | — | 已映射，API 不返回（球员级仅拦截总量，无成功/失败区分） |
+| 101 | CLEARANCES | 解围 | — | 已映射，API 不返回（P SUM: `clearances`） |
 | 57 | SAVES | 扑救 | ✅ | — |
-| 104 | SAVES_INSIDE_BOX | 禁区内扑救 | — | 已映射，API 不返回（用球员 `saves_inside_box` 替代） |
-| 97 | BLOCKED_SHOTS | 封堵射门（球员） | — | 已映射，API 不返回（用球员 `blocked_shots` 替代） |
+| 104 | SAVES_INSIDE_BOX | 禁区内扑救 | — | 已映射，API 不返回（P SUM: `saves_inside_box`） |
+| 97 | BLOCKED_SHOTS | 封堵射门（球员） | — | 已映射，API 不返回（P SUM: `blocked_shots`） |
 | 46 | BALL_SAFE | 安全回传 | ✅ | — |
-| 76 | GOALKEEPER_COME_OUTS | 门将出击 | — | 已映射，API 不返回 |
-| 77 | CHALLENGES | 身体对抗 | — | 已映射，API 不返回 |
+| 76 | GOALKEEPER_COME_OUTS | 门将出击 | — | 已映射，API 不返回（球员级无对应字段，无法替代） |
+| 77 | CHALLENGES | 身体对抗 | — | 已映射，API 不返回（可用 P SUM `duels_total` 近似，概念有交叉） |
 
 ### 1.4 对抗与头球 (Duels & Headers)
 
 | type_id | 开发者名称 | 中文名 | 状态 | 用途 |
 |--------:|-----------|--------|:--:|------|
-| 105 | TOTAL_DUELS | 总对抗次数 | — | 已映射，API 不返回（用球员 `duels_total` 汇总替代） |
+| 105 | TOTAL_DUELS | 总对抗次数 | — | 已映射，API 不返回（P SUM: `duels_total`） |
 | 106 | DUELS_WON | 赢得对抗 | ✅ | — |
 | 65 | SUCCESSFUL_HEADERS | 成功头球 | ✅ | — |
-| 70 | HEADERS | 头球总数 | — | 已映射，API 不返回（用球员 `aerials` 汇总替代） |
+| 70 | HEADERS | 头球总数 | — | 已映射，API 不返回（可用 P SUM `aerials` 近似，概念不完全等同） |
 
 ### 1.5 盘带 (Dribbles)
 
@@ -82,7 +82,7 @@
 | 43 | ATTACKS | 进攻次数 | ✅ | — |
 | 44 | DANGEROUS_ATTACKS | 危险进攻 | ✅ | — |
 | 34 | CORNERS | 角球 | ✅ | CI 区域维度 / TCR 分母 |
-| 51 | OFFSIDES | 越位 | ✅ | — |
+| 51 | OFFSIDES | 越位 | ✅ | 部分比赛不返回（P SUM: `offsides`） |
 | 53 | GOAL_KICKS | 球门球 | ✅ | — |
 | 55 | FREE_KICKS | 任意球 | ✅ | — |
 | 60 | THROWINS | 界外球 | ✅ | — |
@@ -103,9 +103,9 @@
 | 59 | SUBSTITUTIONS | 换人次数 | ✅ | — |
 | 79 | ASSISTS | 助攻 | ✅ | — |
 | 87 | INJURIES | 伤病 | ✅ | — |
-| 88 | GOALS_CONCEDED | 球队失球(在场时) | ✅ | — |
-| 72 | FIRST_SUBSTITUTION | 第一次换人时间 | — | 已映射，API 不返回（可从 events type_id=18 提取） |
-| 61 | BEATS | 被突破次数 | — | 已映射，API 不返回 |
+| 88 | GOALS_CONCEDED | 球队失球(在场时) | ✅ | 部分比赛不返回（P SUM: `goals_conceded` 或直接取比分） |
+| 72 | FIRST_SUBSTITUTION | 第一次换人时间 | — | 已映射，API 不返回（E: 取最早 type_id=18 事件 minute） |
+| 61 | BEATS | 被突破次数 | — | 已映射，API 不返回（P SUM: `dribbled_past`，"被突破" ≈ "被过人"） |
 | 1605 | DUELS_WON_PCT | 对抗成功率 % | ✅ | 2026-06-08 新增映射 |
 
 ---
@@ -409,6 +409,53 @@ home_recoveries = sum(p.ball_recoveries or 0 for p in raw.home_players)
 | 中框/长传/传中 | ❌ | ✅ |
 | 球员头像 | player.photo | image_path |
 | 队徽 | team.logo | participant.image_path |
+
+---
+
+## 十、球队级不可用指标的替代方案总表
+
+`FIXTURE_STAT_MAP` 共 56 个 type_id，实际返回 39 个，**17 个**在当前 API 订阅层级下不返回。下表列出每项的精确替代方案：
+
+### 10.1 P SUM（球员汇总直接替代）— 11 项
+
+球员级 66 项 type_id 已 100% 映射，以下球队指标可直接用球员 SUM 替换：
+
+| 球队 type_id | 球队指标 | 球员字段 | 精度 |
+|:---:|------|------|:---:|
+| 51 | Offsides 越位 | `offsides` | ★★★★★ 完全等同 |
+| 61 | Beats 被突破 | `dribbled_past` | ★★★★ 概念接近 |
+| 83 | Red Cards 红牌 | `redcards` | ★★★★★ 完全等同 |
+| 88 | Goals Conceded 球队失球 | `goals_conceded` 或比分 | ★★★★★ 完全等同 |
+| 97 | Player Blocked Shots 封堵射门 | `blocked_shots` | ★★★★★ 完全等同 |
+| 99 | Accurate Crosses 精准传中 | `crosses_accurate` | ★★★★★ 完全等同 |
+| 101 | Clearances 解围 | `clearances` | ★★★★★ 完全等同 |
+| 104 | Saves Inside Box 禁区内扑救 | `saves_inside_box` | ★★★★★ 完全等同 |
+| 105 | Total Duels 总对抗 | `duels_total` | ★★★★★ 完全等同 |
+| 116 | Accurate Passes 准确传球 | `passes_accurate` | ★★★★★ 完全等同 |
+| 581 | Big Chances Missed 错失绝佳机会 | `big_chances_missed` | ★★★★★ 完全等同 |
+
+### 10.2 E（事件提取）— 1 项
+
+| 球队 type_id | 球队指标 | 提取方式 | 精度 |
+|:---:|------|------|:---:|
+| 72 | First Sub Min 首次换人 | events type_id=18，取 `minute` 最小值 | ★★★★★ 完全等同 |
+
+### 10.3 近似替代 — 3 项
+
+| 球队 type_id | 球队指标 | 近似方案 | 精度 |
+|:---:|------|------|:---:|
+| 63 | Short Passes 短传 | 总传球(80) − 长传(62) − 传中(98) | ★★★☆ 偏高 5-10% |
+| 70 | Total Headers 头球总数 | SUM(`aerials`) 空中对抗次数 | ★★★☆ 概念交叉 |
+| 77 | Challenges 身体对抗 | SUM(`duels_total`) 总对抗 | ★★★☆ 概念包含身体对抗 |
+
+### 10.4 无法替代 — 4 项
+
+| 球队 type_id | 球队指标 | 原因 |
+|:---:|------|------|
+| **66** | Successful Interceptions 成功拦截 | 球员级仅拦截总量（100 intercepts），无成功/失败细分 |
+| **76** | GK Come Outs 门将出击 | 球员级无对应字段，events 中也不包含此事件类型 |
+| **124** | Through Balls 直塞球 | 球员级无 `through_balls` 字段 |
+| **125** | Through Balls Won 成功直塞球 | 同上 |
 
 ---
 
