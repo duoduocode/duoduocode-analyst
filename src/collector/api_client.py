@@ -13,29 +13,43 @@ import requests
 # ============================================================
 
 FIXTURE_STAT_MAP: dict[int, str] = {
+    # 射门
     42: "Total Shots",        86: "Shots on Goal",
     41: "Shots off Goal",     58: "Blocked Shots",
     49: "Shots insidebox",    50: "Shots outsidebox",
     54: "Goal Attempts",      64: "Hit Woodwork",
     47: "Penalties",          580: "Big Chances Created",
     581: "Big Chances Missed", 52: "Goals",
+    # 传球
     80: "Total passes",       81: "Successful Passes",
     82: "Passes %",           117: "Key Passes",
     62: "Long Balls",         63: "Short Passes",
     98: "Crosses",            99: "Accurate Crosses",
+    116: "Accurate Passes",   124: "Through Balls",
+    125: "Through Balls Won",
+    # 控球与空间
     45: "Ball Possession",    43: "Attacks",
     44: "Dangerous Attacks",  46: "Ball Safe",
     34: "Corner Kicks",       51: "Offsides",
     53: "Goal Kicks",         55: "Free Kicks",
     60: "Throwins",
+    # 防守
     78: "Tackles",            100: "Interceptions",
+    66: "Successful Interceptions",
     65: "Successful Headers", 57: "Goalkeeper Saves",
-    106: "Duels Won",         108: "Dribbles Attempts",
-    109: "Successful Dribbles",
+    101: "Clearances",        97: "Player Blocked Shots",
+    104: "Saves Inside Box",  76: "GK Come Outs",
+    # 对抗
+    106: "Duels Won",         105: "Total Duels",
+    70: "Total Headers",      77: "Challenges",
+    # 盘带
+    108: "Dribbles Attempts", 109: "Successful Dribbles",
+    # 纪律 & 换人
     79: "Assists",            88: "Goals Conceded",
     56: "Fouls",              84: "Yellow Cards",
     83: "Red Cards",          59: "Substitutions",
     87: "Injuries",          1605: "Duels Won %",
+    72: "First Sub Min",      61: "Beats",
 }
 
 PLAYER_STAT_MAP: dict[int, str] = {

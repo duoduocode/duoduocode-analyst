@@ -2,13 +2,13 @@
 
 > 基于 SportMonks Football API V3，以 PSG vs Arsenal (fixture 19683241) 实际返回数据验证。
 >
-> 标记说明：✅ 已采集 | ⚠️ 球队级未返回/未采集 | — 球员级不返回 | 球员级已达 100% 覆盖
+> 标记说明：✅ 已采集 | — 已映射但 API 不返回 | 球员级已达 100% 覆盖
 
 ---
 
 ## 一、球队级统计 (Fixture Statistics) — 45 项
 
-球队统计通过 `fixtures/{id}?include=statistics` 获取，使用 `FIXTURE_STAT_MAP` 映射。API 实际返回 39 项（部分零值指标如红牌/失球等仅在发生时返回）。
+- 球队统计通过 `fixtures/{id}?include=statistics` 获取，使用 `FIXTURE_STAT_MAP` 映射。API 实际返回 39 项（零值指标如红牌/失球等仅在发生时返回）。另有 13 项 type_id 已映射但当前 API 不返回（详见 §1.2~§1.8 标注为"—" 的行）。
 
 ### 1.1 射门 (Shooting)
 
@@ -34,14 +34,14 @@
 | 80 | PASSES | 传球总次数 | ✅ | — |
 | 81 | SUCCESSFUL_PASSES | 成功传球 | ✅ | — |
 | 82 | SUCCESSFUL_PASSES_PERCENTAGE | 传球成功率 % | ✅ | CI 传球维度 |
-| 116 | ACCURATE_PASSES | 准确传球次数 | ⚠️ | API 返回但代码未采集（球队级） |
+| 116 | ACCURATE_PASSES | 准确传球次数 | — | 已映射，API 不返回（用球员 `passes_accurate` 替代） |
 | 117 | KEY_PASSES | 关键传球 | ✅ | — |
 | 62 | LONG_PASSES | 长传 | ✅ | 长传比 |
 | 63 | SHORT_PASSES | 短传 | ✅ | — |
 | 98 | TOTAL_CROSSES | 传中总次数 | ✅ | — |
 | 99 | ACCURATE_CROSSES | 精准传中 | ✅ | — |
-| 124 | THROUGH_BALLS | 直塞球 | ⚠️ | API 返回但代码未采集 |
-| 125 | THROUGH_BALLS_WON | 成功直塞球 | ⚠️ | API 返回但代码未采集 |
+| 124 | THROUGH_BALLS | 直塞球 | — | 已映射，API 不返回 |
+| 125 | THROUGH_BALLS_WON | 成功直塞球 | — | 已映射，API 不返回 |
 
 ### 1.3 防守 (Defense)
 
@@ -49,23 +49,23 @@
 |--------:|-----------|--------|:--:|------|
 | 78 | TACKLES | 抢断 | ✅ | — |
 | 100 | INTERCEPTIONS | 拦截 | ✅ | — |
-| 66 | SUCCESSFUL_INTERCEPTIONS | 成功拦截 | ⚠️ | API 返回但代码未采集 |
-| 101 | CLEARANCES | 解围 | ⚠️ | API 返回但代码未采集 |
+| 66 | SUCCESSFUL_INTERCEPTIONS | 成功拦截 | — | 已映射，API 不返回 |
+| 101 | CLEARANCES | 解围 | — | 已映射，API 不返回（用球员 `clearances` 替代） |
 | 57 | SAVES | 扑救 | ✅ | — |
-| 104 | SAVES_INSIDE_BOX | 禁区内扑救 | ⚠️ | API 返回但代码未采集 |
-| 97 | BLOCKED_SHOTS | 封堵射门（球员） | ⚠️ | API 返回但代码未采集 |
+| 104 | SAVES_INSIDE_BOX | 禁区内扑救 | — | 已映射，API 不返回（用球员 `saves_inside_box` 替代） |
+| 97 | BLOCKED_SHOTS | 封堵射门（球员） | — | 已映射，API 不返回（用球员 `blocked_shots` 替代） |
 | 46 | BALL_SAFE | 安全回传 | ✅ | — |
-| 76 | GOALKEEPER_COME_OUTS | 门将出击 | ⚠️ | API 返回但代码未采集 |
-| 77 | CHALLENGES | 身体对抗 | ⚠️ | API 返回但代码未采集 |
+| 76 | GOALKEEPER_COME_OUTS | 门将出击 | — | 已映射，API 不返回 |
+| 77 | CHALLENGES | 身体对抗 | — | 已映射，API 不返回 |
 
 ### 1.4 对抗与头球 (Duels & Headers)
 
 | type_id | 开发者名称 | 中文名 | 状态 | 用途 |
 |--------:|-----------|--------|:--:|------|
-| 105 | TOTAL_DUELS | 总对抗次数 | ⚠️ | API 返回但代码未采集 |
+| 105 | TOTAL_DUELS | 总对抗次数 | — | 已映射，API 不返回（用球员 `duels_total` 汇总替代） |
 | 106 | DUELS_WON | 赢得对抗 | ✅ | — |
 | 65 | SUCCESSFUL_HEADERS | 成功头球 | ✅ | — |
-| 70 | HEADERS | 头球总数 | ⚠️ | API 返回但代码未采集 |
+| 70 | HEADERS | 头球总数 | — | 已映射，API 不返回（用球员 `aerials` 汇总替代） |
 
 ### 1.5 盘带 (Dribbles)
 
@@ -104,8 +104,8 @@
 | 79 | ASSISTS | 助攻 | ✅ | — |
 | 87 | INJURIES | 伤病 | ✅ | — |
 | 88 | GOALS_CONCEDED | 球队失球(在场时) | ✅ | — |
-| 72 | FIRST_SUBSTITUTION | 第一次换人时间 | ⚠️ | API 返回但代码未采集 |
-| 61 | BEATS | 被突破次数 | ⚠️ | API 返回但代码未采集 |
+| 72 | FIRST_SUBSTITUTION | 第一次换人时间 | — | 已映射，API 不返回（可从 events type_id=18 提取） |
+| 61 | BEATS | 被突破次数 | — | 已映射，API 不返回 |
 | 1605 | DUELS_WON_PCT | 对抗成功率 % | ✅ | 2026-06-08 新增映射 |
 
 ---
