@@ -532,6 +532,9 @@ def build_report_v3_html(
     sub_impacts: list[dict] = None,
     signals: list[SignalResult] = None,
     computed = None,
+    tactical_narrative: str = "",
+    tactical_data: dict = None,
+    tactical_image_paths: dict = None,
 ) -> str:
     """v3 HTML report: direct HTML generation with rich styling and visuals."""
 
@@ -713,7 +716,61 @@ def build_report_v3_html(
         if image_paths.get("xg_hist"):
             H.append(f'<p style="text-align:center"><img src="{image_paths["xg_hist"]}" alt="xG模拟"></p>')
 
-    # ── Section 4: 战术解码 ──
+    # ── Tactical Analysis Section (v2 战术分析板块) ──
+    if tactical_narrative or tactical_data:
+        H.append('<h2>📐 战术分析</h2>')
+
+        # 解析战术叙事段（五段）
+        if tactical_narrative:
+            tac_sections = _parse_narrative_sections(tactical_narrative)
+
+            # 战术画像段 + 雷达图
+            profile = tac_sections.get("战术画像", "")
+            if profile:
+                H.append(f'<div class="insight-box" style="border-left-color:#2ecc71"><h4 style="color:#2ecc71;margin:0 0 6px">战术画像</h4><p>{profile}</p></div>')
+                if tactical_image_paths and tactical_image_paths.get("tactical_radar"):
+                    H.append(f'<p style="text-align:center"><img src="{tactical_image_paths["tactical_radar"]}" alt="战术雷达图"></p>')
+
+            # 战术演绎段 + 控球率图 + 射门图（上下堆叠，各占全宽）
+            deduction = tac_sections.get("战术演绎", "")
+            if deduction:
+                H.append(f'<div class="insight-box" style="border-left-color:#3498db"><h4 style="color:#3498db;margin:0 0 6px">战术演绎</h4><p>{deduction}</p></div>')
+                tac_imgs = tactical_image_paths or {}
+                if tac_imgs.get("tactical_possession"):
+                    H.append(f'<p style="text-align:center;margin:10px 0 4px;font-size:12px;color:#95a5a6">▼ 控球率逐段变化</p>')
+                    H.append(f'<p style="text-align:center;margin:0 0 16px"><img src="{tac_imgs["tactical_possession"]}" alt="控球摇摆" style="width:100%"></p>')
+                if tac_imgs.get("tactical_shots"):
+                    H.append(f'<p style="text-align:center;margin:10px 0 4px;font-size:12px;color:#95a5a6">▼ 时段射门分布</p>')
+                    H.append(f'<p style="text-align:center;margin:0 0 16px"><img src="{tac_imgs["tactical_shots"]}" alt="时段射门" style="width:100%"></p>')
+
+            # 战术验证段 + 执行评分卡
+            verification = tac_sections.get("战术验证", "")
+            if verification:
+                H.append(f'<h4 style="color:#2ecc71;margin:16px 0 6px">战术验证</h4><p>{verification}</p>')
+
+            # 战术博弈段 + PPDA图
+            game = tac_sections.get("战术博弈", "")
+            if game:
+                H.append(f'<div class="insight-box" style="border-left-color:#e74c3c"><h4 style="color:#e74c3c;margin:0 0 6px">战术博弈</h4><p>{game}</p></div>')
+                if tactical_image_paths and tactical_image_paths.get("tactical_ppda"):
+                    H.append(f'<p style="text-align:center;margin:10px 0 4px;font-size:12px;color:#95a5a6">▼ 全场压迫强度对比</p>')
+                    H.append(f'<p style="text-align:center;margin:0 0 16px"><img src="{tactical_image_paths["tactical_ppda"]}" alt="PPDA对比" style="width:100%"></p>')
+
+            # 战术定论
+            conclusion = tac_sections.get("战术定论", "")
+            if conclusion:
+                H.append(f'<div class="insight-box" style="border-left-color:#f1c40f;margin-top:12px"><p style="font-size:15px;font-weight:bold;margin:0">💡 {conclusion}</p></div>')
+
+        # 嵌入 HTML 内联卡片（执行评分卡 + 克制矩阵 + 关键事件）
+        if tactical_data:
+            try:
+                from src.visualizer.tactical_charts import generate_tactical_html_cards
+                cards_html = generate_tactical_html_cards(tactical_data, home_name, away_name)
+                H.append(cards_html)
+            except Exception as e:
+                H.append(f'<!-- tactical cards error: {e} -->')
+
+    # ── Section 4: 战术解码 (original, keep for backward compat) ──
     tactics = sections.get("战术解码", "")
     if tactics:
         H.append('<h2>🧩 战术解码</h2>')

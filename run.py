@@ -125,6 +125,140 @@ def generate_all_visuals(raw, computed, visual_config: dict, output_dir: str, su
     return rel
 
 
+def _save_tactical_excel(tactical_data: dict, tactical_narrative: str,
+                         home_name: str, away_name: str, output_path: str):
+    """保存战术分析 Excel 文件，含所有数据及 LLM 叙事。"""
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    except ImportError:
+        logger.warning("openpyxl not installed, skip Excel export")
+        return
+
+    wb = openpyxl.Workbook()
+
+    # Style definitions
+    header_font = Font(bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="1a1a2e", end_color="1a1a2e", fill_type="solid")
+    green_fill = PatternFill(start_color="2ecc71", end_color="2ecc71", fill_type="solid")
+    blue_fill = PatternFill(start_color="3498db", end_color="3498db", fill_type="solid")
+    data_font = Font(size=10)
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin")
+    )
+
+    def style_header(ws, row, cols, fill):
+        for c in range(1, cols + 1):
+            cell = ws.cell(row=row, column=c)
+            cell.font = header_font
+            cell.fill = fill
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = thin_border
+
+    def auto_width(ws):
+        for col in ws.columns:
+            max_len = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+
+    # ── Sheet 1: 战术维度 ──
+    ws1 = wb.active
+    ws1.title = "战术维度"
+    ws1.append([f"{home_name} 战术维度", "值", f"{away_name} 战术维度", "值", "Gap"])
+    style_header(ws1, 1, 5, header_fill)
+
+    home_raw = tactical_data["home"]["tactical_raw"]
+    away_raw = tactical_data["away"]["tactical_raw"]
+    home_rel = tactical_data["home"]["match_relative"]
+    labels = [
+        ("长传占比", "long_ball_ratio"), ("传中占比", "cross_ratio"),
+        ("三区传球占比", "final_third_pass_ratio"), ("向前传球比", "forward_ratio"),
+        ("每射传球", "passes_per_shot"), ("PPDA", "ppda"),
+        ("高位抢断比", "high_press_ratio"), ("解围倾向", "clearance_ratio"),
+    ]
+    for cn, key in labels:
+        gap_key = key.replace("_ratio", "_gap").replace("_per_shot", "_gap")
+        ws1.append([cn, home_raw.get(key, 0), cn, away_raw.get(key, 0), home_rel.get(gap_key, "-")])
+    auto_width(ws1)
+
+    # ── Sheet 2: 执行效果 ──
+    ws2 = wb.create_sheet("执行效果")
+    ws2.append(["球队", "进攻/防守", "维度", "投入Gap", "ROI值", "得分", "判定"])
+    style_header(ws2, 1, 7, header_fill)
+    v_map = {"effective": "奏效", "fail": "失败", "undetermined": "数据不足"}
+    for team_key, tname in [("home", home_name), ("away", away_name)]:
+        exec_data = tactical_data[team_key]["execution"]
+        for phase in ["attack", "defense"]:
+            pd_data = exec_data[phase]
+            for d in pd_data.get("dimensions", []):
+                ws2.append([tname, phase, d["dim"], d.get("input_gap", "-"),
+                            d.get("roi_value", "-"), d["score"],
+                            v_map.get(pd_data["verdict"], pd_data["verdict"])])
+            ws2.append([tname, phase, f"总分", "", "", pd_data["total_score"], ""])
+    auto_width(ws2)
+
+    # ── Sheet 3: 比赛走势 ──
+    ws3 = wb.create_sheet("比赛走势")
+    mf = tactical_data["match_flow"]
+
+    ws3.append(["节奏主导权"])
+    ws3.cell(row=1, column=1).font = Font(bold=True, size=12)
+    ws3.append(["切换次数", mf["rhythm"]["swings"]])
+    ws3.append(["判定", mf["rhythm"]["verdict"]])
+
+    ws3.append([])
+    ws3.append(["PPDA 压迫强度 (全场)"])
+    ws3.cell(row=ws3.max_row, column=1).font = Font(bold=True, size=12)
+    ws3.append(["球队", "全场PPDA"])
+    for team_key in ["home", "away"]:
+        tname = home_name if team_key == "home" else away_name
+        ppda_val = mf["ppda"][team_key]["full_match"]
+        ws3.append([tname, ppda_val])
+
+    ws3.append([])
+    ws3.append(["关键事件冲击"])
+    ws3.cell(row=ws3.max_row, column=1).font = Font(bold=True, size=12)
+    ws3.append(["分钟", "事件类型", "球队", "触发条件", "上下文"])
+    for ev in mf.get("key_event_impacts", []):
+        team = home_name if ev.get("team") == "home" else away_name
+        ws3.append([ev["minute"], ev["event_type"], team, ev.get("trigger", ""), ev.get("context", "")])
+    auto_width(ws3)
+
+    # ── Sheet 4: 教练博弈 ──
+    ws4 = wb.create_sheet("教练博弈")
+    coaching = tactical_data["coaching"]
+    ws4.append(["风格碰撞", coaching["style_clash"]])
+    ws4.append(["克制分", home_name, away_name])
+    ws4.append(["", coaching["tactical_mismatch"]["home"], coaching["tactical_mismatch"]["away"]])
+    ws4.append([])
+    ws4.append(["克制对"])
+    ws4.cell(row=ws4.max_row, column=1).font = Font(bold=True, size=12)
+    ws4.append(["进攻方", "进攻维度", "防守维度", "结果"])
+    for p in coaching.get("mismatch_pairs", []):
+        ot = home_name if p.get("off_team") == "home" else away_name
+        ws4.append([ot, p["off_dim"], p["def_dim"], p["result"]])
+    auto_width(ws4)
+
+    # ── Sheet 5: LLM 叙事 ──
+    ws5 = wb.create_sheet("LLM叙事")
+    ws5.column_dimensions["A"].width = 100
+    narrative_font = Font(size=11)
+    # Split by paragraphs
+    paragraphs = tactical_narrative.strip().split("\n")
+    for i, para in enumerate(paragraphs, 1):
+        cell = ws5.cell(row=i, column=1, value=para)
+        cell.font = narrative_font
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        if para.startswith("【"):
+            cell.font = Font(bold=True, size=12, color="2ecc71")
+
+    wb.save(output_path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="AI 足球比赛分析报告生成")
     parser.add_argument("--match", type=int, help="比赛 ID (fixture id)")
@@ -234,17 +368,67 @@ def main():
         narrative_text = llm.generate(sys_p, user_p)
         logger.info("Narrative (v3) generated.")
 
+        # --- tactical analysis v2 ---
+        logger.info("Computing tactical analysis (四层因果模型)...")
+        from src.engine.tactical_insights import compute_tactical_analysis
+        tactical_data = compute_tactical_analysis(raw)
+        logger.info(f"Tactical: style_clash={tactical_data['coaching']['style_clash']}")
+
+        from src.composer.tactical_prompt import build_tactical_system_and_user
+        tactical_system, tactical_user_prompt = build_tactical_system_and_user(
+            tactical_data,
+            raw.home_team.name, raw.away_team.name,
+            raw.score.home, raw.score.away,
+        )
+        logger.info("Calling LLM for tactical narrative...")
+        tactical_narrative = llm.generate(tactical_system, tactical_user_prompt)
+        logger.info("Tactical narrative generated.")
+
         if not args.no_images:
             image_paths = generate_all_visuals(raw, computed, config["visual"], str(output_dir), sub_impacts=sub_impacts)
             logger.info(f"图表已生成: {len(image_paths)} 张")
+
+            # Generate tactical charts
+            try:
+                from src.visualizer.tactical_charts import generate_all_tactical_charts
+                tactical_image_paths_raw = generate_all_tactical_charts(
+                    tactical_data, raw.home_team.name, raw.away_team.name,
+                    str(output_dir / "images"), dpi=config["visual"].get("dpi", 150),
+                )
+                tactical_image_paths = {}
+                for k, v in tactical_image_paths_raw.items():
+                    tactical_image_paths[k] = str(Path(v).relative_to(output_dir)).replace("\\", "/")
+                logger.info(f"战术图表已生成: {len(tactical_image_paths)} 张")
+            except Exception as e:
+                logger.warning(f"战术图表生成失败: {e}")
+                tactical_image_paths = {}
         else:
             image_paths = {}
+            tactical_image_paths = {}
+
+        # Save tactical data JSON
+        tactical_json_path = output_dir / "tactical_analysis.json"
+        tactical_json_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tactical_json_path, "w", encoding="utf-8") as f:
+            json.dump(tactical_data, f, ensure_ascii=False, indent=2, default=str)
+
+        # Save tactical Excel
+        try:
+            _save_tactical_excel(tactical_data, tactical_narrative,
+                                 raw.home_team.name, raw.away_team.name,
+                                 str(output_dir / "tactical_analysis.xlsx"))
+            logger.info("战术分析 Excel 已保存")
+        except Exception as e:
+            logger.warning(f"战术 Excel 保存失败: {e}")
 
         from src.reporter.build_report import build_report_v3_html
         report_path = build_report_v3_html(
             raw, narrative_text, image_paths, str(output_dir),
             hard_facts=hard_facts, sub_impacts=sub_impacts,
             signals=all_signals, computed=computed,
+            tactical_narrative=tactical_narrative,
+            tactical_data=tactical_data,
+            tactical_image_paths=tactical_image_paths,
         )
         logger.info(f"报告 (v3 HTML) 已生成: {report_path}")
 
