@@ -110,12 +110,108 @@ def plot_tactical_radar(
     return output_path
 
 
+def plot_shot_xg_timeline(
+    home_name: str, away_name: str,
+    shot_segments: dict,
+    output_path: str, dpi: int = 150,
+) -> str:
+    """射门时段分布 + xG/xGOT 累积曲线。双 panel（主客各一个子图）。
+
+    每个子图：
+    - 左轴：堆叠柱状 — 射正(深色) + 射偏(浅色)
+    - 右轴：累积 xG 曲线(实线) + 累积 xGOT 曲线(虚线)
+    - xG vs xGOT 的间距揭示射门质量
+    """
+    fig, (ax_h, ax_a) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+    fig.patch.set_facecolor(BG_COLOR)
+
+    windows = ["0-15", "15-30", "30-45", "45-60", "60-75", "75-90"]
+    x = np.arange(len(windows))
+
+    for ax, shots_on, shots_off, xg_list, xgot_list, name, bar_color, team_key in [
+        (ax_h,
+         shot_segments.get("home_on", shot_segments.get("home", [])),
+         shot_segments.get("home_off", [0] * 6),
+         shot_segments.get("home_xg", [0] * 6),
+         shot_segments.get("home_xgot", [0] * 6),
+         home_name, HOME_COLOR, "home"),
+        (ax_a,
+         shot_segments.get("away_on", shot_segments.get("away", [])),
+         shot_segments.get("away_off", [0] * 6),
+         shot_segments.get("away_xg", [0] * 6),
+         shot_segments.get("away_xgot", [0] * 6),
+         away_name, AWAY_COLOR, "away"),
+    ]:
+        ax.set_facecolor(BG_COLOR)
+
+        # 堆叠柱状
+        width = 0.55
+        bars_off = ax.bar(x, shots_off, width, label="射偏",
+                          color=bar_color, alpha=0.35, edgecolor=bar_color, linewidth=0.5)
+        bars_on = ax.bar(x, shots_on, width, bottom=shots_off, label="射正",
+                         color=bar_color, alpha=0.9, edgecolor=bar_color, linewidth=0.5)
+
+        # 柱上标注总射门数
+        for i, (on, off) in enumerate(zip(shots_on, shots_off)):
+            total = on + off
+            if total > 0:
+                ax.text(i, total + 0.3, str(total), ha="center", va="bottom",
+                        fontsize=8, color=TEXT_COLOR)
+
+        # 累积 xG / xGOT 曲线 (右轴)
+        ax2 = ax.twinx()
+        cum_xg = np.cumsum(xg_list)
+        cum_xgot = np.cumsum(xgot_list)
+
+        ax2.plot(x, cum_xg, color="#f39c12", linewidth=2.2, marker="o", markersize=6,
+                 label=f"累积 xG ({round(cum_xg[-1], 2) if len(cum_xg) > 0 else 0})", zorder=5)
+        ax2.plot(x, cum_xgot, color=bar_color, linewidth=1.8, marker="s", markersize=5,
+                 linestyle="--", label=f"累积 xGOT ({round(cum_xgot[-1], 2) if len(cum_xgot) > 0 else 0})", zorder=5)
+
+        # 标注最终值
+        if len(cum_xg) > 0 and cum_xg[-1] > 0:
+            ax2.annotate(f"{cum_xg[-1]:.2f}", xy=(5, cum_xg[-1]),
+                         fontsize=8, color="#f39c12", fontweight="bold",
+                         xytext=(5, 3), textcoords="offset points")
+        if len(cum_xgot) > 0 and cum_xgot[-1] > 0:
+            ax2.annotate(f"{cum_xgot[-1]:.2f}", xy=(5, cum_xgot[-1]),
+                         fontsize=8, color=bar_color, fontweight="bold",
+                         xytext=(5, -12), textcoords="offset points")
+
+        ax2.set_ylabel("xG", color="#f39c12", fontsize=8)
+        ax2.tick_params(axis="y", colors="#f39c12", labelsize=7)
+
+        # 图例
+        lines1, labels1 = ax.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left",
+                  fontsize=8, facecolor=BG_COLOR, edgecolor=GRID_COLOR, labelcolor=TEXT_COLOR)
+
+        _setup_style(ax, f"{name}")
+        ax.set_ylabel("射门次数", color=TEXT_COLOR, fontsize=8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(windows, fontsize=9, color=TEXT_COLOR)
+
+    # 纵轴范围
+    max_h = max(max(shot_segments.get("home_on", [0])), max(shot_segments.get("home_off", [0])),
+                max(shot_segments.get("away_on", [0])), max(shot_segments.get("away_off", [0])))
+    for ax in [ax_h, ax_a]:
+        ax.set_ylim(0, max(max_h * 1.5, 3))
+
+    fig.suptitle(f"射门时段分布 xG 累积 — {home_name} vs {away_name}",
+                 color=TEXT_COLOR, fontsize=13, fontweight="bold", y=1.01)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=BG_COLOR)
+    plt.close(fig)
+    return output_path
+
+
 def plot_shot_bars(
     home_name: str, away_name: str,
     home_shots: list[int], away_shots: list[int],
     output_path: str, dpi: int = 150,
 ) -> str:
-    """图2: 时段射门分组柱状图（6窗口）。"""
+    """图2: 时段射门分组柱状图（6窗口）— 保留向后兼容。"""
     fig, ax = plt.subplots(figsize=(10, 5))
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
@@ -833,6 +929,46 @@ def generate_event_timeline_html(raw, home_name: str, away_name: str) -> str:
     return html
 
 
+def save_timeline_png(raw, home_name: str, away_name: str, output_path: str) -> str:
+    """Render event timeline HTML to a high-resolution PNG using headless Chromium.
+
+    Args:
+        raw: RawMatchData with events/players.
+        home_name / away_name: Team names for the header.
+        output_path: File path for the output PNG.
+
+    Returns:
+        The output_path on success.
+    """
+    html = generate_event_timeline_html(raw, home_name, away_name)
+    wrapper_css = f"""
+    <style>
+      html, body {{ margin:0; padding:0; width:980px; background:{BG_COLOR}; }}
+      body {{ display:flex; justify-content:center; min-height:100vh; padding:10px 0; }}
+    </style>
+    """.strip()
+    full_html = f"<!DOCTYPE html><html><head><meta charset='utf-8'>{wrapper_css}</head><body>{html}</body></html>"
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise ImportError("playwright is required. Install: pip install playwright && playwright install chromium")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 980, "height": 800}, device_scale_factor=2)
+        page.set_content(full_html)
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(1000)
+        page.screenshot(path=str(out), full_page=True)
+        browser.close()
+
+    return str(out)
+
+
 def generate_all_tactical_charts(
     tactical_data: dict,
     home_name: str, away_name: str,
@@ -852,12 +988,10 @@ def generate_all_tactical_charts(
     plot_tactical_radar(home_name, away_name, home_raw, away_raw, home_rel, radar_path, dpi)
     result["tactical_radar"] = radar_path
 
-    # 射门柱状图
+    # 射门 + xG/xGOT 累积图表
     shot_segments = tactical_data["match_flow"]["shot_segments"]
     shot_path = str(img / "tactical_shots.png")
-    plot_shot_bars(home_name, away_name,
-                   shot_segments["home"], shot_segments["away"],
-                   shot_path, dpi)
+    plot_shot_xg_timeline(home_name, away_name, shot_segments, shot_path, dpi)
     result["tactical_shots"] = shot_path
 
     # PPDA 全场柱状图

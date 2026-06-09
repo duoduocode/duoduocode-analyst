@@ -157,10 +157,9 @@ def compute_tactical_raw(raw: RawMatchData) -> dict:
 def _calc_shot_segments(raw: RawMatchData) -> dict:
     """6 个 15 分钟窗口射门统计。从 timeline 数据读取（type_id 569=射正, 570=射偏）。
     自动过滤非正赛时段（加时赛/点球大战）的事件。
+    同时计算窗口级 xG 和 xGOT（团队均摊法）。
     """
     tl = raw.timeline if isinstance(raw.timeline, list) else []
-    # timeline 的 period_id 是 SportMonks 内部 ID。
-    # 取事件数最多的 2 个 period 作为正赛（上半场 + 下半场）。
     from collections import Counter
     pid_counts = Counter(
         (e.get("period_id", 0) if isinstance(e, dict) else getattr(e, "period_id", 0))
@@ -169,8 +168,12 @@ def _calc_shot_segments(raw: RawMatchData) -> dict:
     top_pids = {pid for pid, _ in pid_counts.most_common(2)} if len(pid_counts) >= 2 else set(pid_counts)
 
     windows = [(0, 15), (15, 30), (30, 45), (45, 60), (60, 75), (75, 999)]
-    h_shots = [0] * 6
-    a_shots = [0] * 6
+    h_total = [0] * 6
+    h_on = [0] * 6
+    h_off = [0] * 6
+    a_total = [0] * 6
+    a_on = [0] * 6
+    a_off = [0] * 6
     home_id = raw.home_team.id
     away_id = raw.away_team.id
     for e in tl:
@@ -189,11 +192,54 @@ def _calc_shot_segments(raw: RawMatchData) -> dict:
         if idx < 0:
             continue
         tid = e.get("participant_id", 0) if isinstance(e, dict) else getattr(e, "participant_id", 0)
+        is_on = (ti == 569)
         if tid == home_id:
-            h_shots[idx] += 1
+            h_total[idx] += 1
+            if is_on:
+                h_on[idx] += 1
+            else:
+                h_off[idx] += 1
         elif tid == away_id:
-            a_shots[idx] += 1
-    return {"home": h_shots, "away": a_shots}
+            a_total[idx] += 1
+            if is_on:
+                a_on[idx] += 1
+            else:
+                a_off[idx] += 1
+
+    # 团队级 xG / xGOT per shot
+    h_xg = sum(getattr(p, "xg", 0) or 0 for p in raw.home_players)
+    a_xg = sum(getattr(p, "xg", 0) or 0 for p in raw.away_players)
+    h_xgot = sum(getattr(p, "xgot", 0) or 0 for p in raw.home_players)
+    a_xgot = sum(getattr(p, "xgot", 0) or 0 for p in raw.away_players)
+    h_shots_on_total = sum(getattr(p, "shots_on", 0) or 0 for p in raw.home_players)
+    a_shots_on_total = sum(getattr(p, "shots_on", 0) or 0 for p in raw.away_players)
+
+    h_xg_per = h_xg / max(sum(h_total), 1)
+    a_xg_per = a_xg / max(sum(a_total), 1)
+    h_xgot_per = h_xgot / max(h_shots_on_total, 1)
+    a_xgot_per = a_xgot / max(a_shots_on_total, 1)
+
+    h_xg_w = [round(h_total[i] * h_xg_per, 3) for i in range(6)]
+    a_xg_w = [round(a_total[i] * a_xg_per, 3) for i in range(6)]
+    h_xgot_w = [round(h_on[i] * h_xgot_per, 3) for i in range(6)]
+    a_xgot_w = [round(a_on[i] * a_xgot_per, 3) for i in range(6)]
+
+    return {
+        "home": h_total,
+        "away": a_total,
+        "home_on": h_on,
+        "away_on": a_on,
+        "home_off": h_off,
+        "away_off": a_off,
+        "home_xg": h_xg_w,
+        "away_xg": a_xg_w,
+        "home_xgot": h_xgot_w,
+        "away_xgot": a_xgot_w,
+        "home_xg_total": round(h_xg, 3),
+        "away_xg_total": round(a_xg, 3),
+        "home_xgot_total": round(h_xgot, 3),
+        "away_xgot_total": round(a_xgot, 3),
+    }
 
 
 def _calc_ppda_full(raw: RawMatchData) -> dict:
@@ -343,12 +389,123 @@ def _calc_key_event_impacts(raw: RawMatchData) -> list[dict]:
     return impacts
 
 
+def _calc_event_impact_windows(raw: RawMatchData, window_minutes: int = 10) -> list[dict]:
+    """进球前后窗口对比：控球率变化 + xG密度变化。
+
+    对每个正赛进球（排除点球大战），对比进球前/后 10 分钟窗口的：
+    - 双方平均控球率（从 trends type_id=45 逐分钟数据取均值）
+    - 射门数 & 近似 xG（窗口射门 * 全场每射 xG）
+    """
+    trends = raw.trends or {}
+    home_id = str(raw.home_team.id)
+    away_id = str(raw.away_team.id)
+    timeline = raw.timeline if isinstance(raw.timeline, list) else []
+
+    # 获取逐分钟控球率
+    def _get_poss_points(team_id: str) -> list:
+        inner = trends.get(team_id, {})
+        pts = inner.get("45", [])
+        return [(p.minute, p.value) for p in pts] if isinstance(pts, list) else []
+
+    home_poss = _get_poss_points(home_id)
+    away_poss = _get_poss_points(away_id)
+
+    # 全场 xG 和射门总数（用于近似）
+    h_xg = sum(getattr(p, "xg", 0) or 0 for p in raw.home_players)
+    a_xg = sum(getattr(p, "xg", 0) or 0 for p in raw.away_players)
+    h_shots = sum(getattr(p, "shots_total", 0) or 0 for p in raw.home_players)
+    a_shots = sum(getattr(p, "shots_total", 0) or 0 for p in raw.away_players)
+    h_xg_per_shot = h_xg / max(h_shots, 1)
+    a_xg_per_shot = a_xg / max(a_shots, 1)
+
+    # 从 timeline 统计某时间窗口内的射门数
+    def _shots_in_window(team_pid: int, start: float, end: float) -> int:
+        count = 0
+        for e in timeline:
+            if e.get("type_id") not in (569, 570):
+                continue
+            if e.get("participant_id") != team_pid:
+                continue
+            m = e.get("minute", 0)
+            if start <= m < end:
+                count += 1
+        return count
+
+    # 控球率在一个时间窗口的平均值
+    def _avg_poss(points: list, start: float, end: float) -> float:
+        vals = [v for m, v in points if start <= m < end]
+        return round(sum(vals) / len(vals), 1) if vals else 50.0
+
+    # 只处理正赛进球
+    impacts = []
+    for ev in raw.events:
+        if ev.event_type != "Goal":
+            continue
+        if ev.detail in ("pen_shootout_goal", "pen_shootout_miss"):
+            continue
+        mi = ev.time_elapsed
+        target_team = "home" if ev.team_id == raw.home_team.id else "away"
+        target_pid = raw.home_team.id if target_team == "home" else raw.away_team.id
+        opp_pid = raw.away_team.id if target_team == "home" else raw.home_team.id
+
+        before_start = max(0, mi - window_minutes)
+        before_end = mi
+        after_start = mi
+        after_end = min(120, mi + window_minutes)
+
+        # 进球方/对方控球率
+        target_poss_before = _avg_poss(home_poss if target_team == "home" else away_poss, before_start, before_end)
+        target_poss_after = _avg_poss(home_poss if target_team == "home" else away_poss, after_start, after_end)
+        opp_poss_before = _avg_poss(away_poss if target_team == "home" else home_poss, before_start, before_end)
+        opp_poss_after = _avg_poss(away_poss if target_team == "home" else home_poss, after_start, after_end)
+
+        # 进球方射门 & xG 近似
+        shots_before = _shots_in_window(target_pid, before_start, before_end)
+        shots_after = _shots_in_window(target_pid, after_start, after_end)
+        xg_per = h_xg_per_shot if target_team == "home" else a_xg_per_shot
+        xg_before = round(shots_before * xg_per, 3)
+        xg_after = round(shots_after * xg_per, 3)
+
+        # 对方射门 & xG 近似
+        opp_shots_before = _shots_in_window(opp_pid, before_start, before_end)
+        opp_shots_after = _shots_in_window(opp_pid, after_start, after_end)
+        opp_xg_per = a_xg_per_shot if target_team == "home" else h_xg_per_shot
+        opp_xg_before = round(opp_shots_before * opp_xg_per, 3)
+        opp_xg_after = round(opp_shots_after * opp_xg_per, 3)
+
+        is_penalty = ev.detail == "goal_penalty"
+
+        impacts.append({
+            "minute": mi,
+            "event_type": "点球破门" if is_penalty else "进球",
+            "team": target_team,
+            "player": ev.player_name,
+            "window_before": f"{before_start}-{before_end}'",
+            "window_after": f"{after_start}-{after_end}'",
+            "possession": {
+                "goal_team": {"before": target_poss_before, "after": target_poss_after},
+                "opponent": {"before": opp_poss_before, "after": opp_poss_after},
+            },
+            "shots": {
+                "goal_team": {"before": shots_before, "after": shots_after},
+                "opponent": {"before": opp_shots_before, "after": opp_shots_after},
+            },
+            "xg_approx": {
+                "goal_team": {"before": xg_before, "after": xg_after},
+                "opponent": {"before": opp_xg_before, "after": opp_xg_after},
+            },
+        })
+
+    return impacts
+
+
 def compute_match_flow(raw: RawMatchData) -> dict:
     shot_segments = _calc_shot_segments(raw)
     ppda = _calc_ppda_full(raw)
     possession_trend = _calc_possession_trend(raw)
     rhythm = _calc_rhythm(raw, possession_trend)
     key_event_impacts = _calc_key_event_impacts(raw)
+    event_impact_windows = _calc_event_impact_windows(raw)
 
     return {
         "rhythm": rhythm,
@@ -356,6 +513,7 @@ def compute_match_flow(raw: RawMatchData) -> dict:
         "shot_segments": shot_segments,
         "possession_trend": possession_trend,
         "key_event_impacts": key_event_impacts,
+        "event_impact_windows": event_impact_windows,
     }
 
 
