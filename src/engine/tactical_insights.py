@@ -214,6 +214,41 @@ def _calc_shot_segments(raw: RawMatchData) -> dict:
     h_shots_on_total = sum(getattr(p, "shots_on", 0) or 0 for p in raw.home_players)
     a_shots_on_total = sum(getattr(p, "shots_on", 0) or 0 for p in raw.away_players)
 
+    # 回退：当 timeline 不含射门事件时（如 CSL 数据），从 stats 取总量并均摊到窗口
+    if sum(h_total) == 0 and sum(a_total) == 0:
+        h_total_shots = int(_stat(raw.home_stats, KEY_SHOTS, default=0))
+        a_total_shots = int(_stat(raw.away_stats, KEY_SHOTS, default=0))
+        h_on_shots = int(_stat(raw.home_stats, "Shots on Goal", default=0))
+        a_on_shots = int(_stat(raw.away_stats, "Shots on Goal", default=0))
+        # Also try player-aggregated data if available
+        if h_total_shots == 0:
+            h_total_shots = h_shots_on_total  # fallback
+        if a_total_shots == 0:
+            a_total_shots = a_shots_on_total
+        # Distribute evenly across 6 windows
+        if h_total_shots > 0:
+            base = h_total_shots // 6
+            rem = h_total_shots % 6
+            for i in range(6):
+                h_total[i] = base + (1 if i < rem else 0)
+            h_on_shots = min(h_on_shots, h_total_shots)
+            base_on = h_on_shots // 6
+            rem_on = h_on_shots % 6
+            for i in range(6):
+                h_on[i] = base_on + (1 if i < rem_on else 0)
+            h_off = [h_total[i] - h_on[i] for i in range(6)]
+        if a_total_shots > 0:
+            base = a_total_shots // 6
+            rem = a_total_shots % 6
+            for i in range(6):
+                a_total[i] = base + (1 if i < rem else 0)
+            a_on_shots = min(a_on_shots, a_total_shots)
+            base_on = a_on_shots // 6
+            rem_on = a_on_shots % 6
+            for i in range(6):
+                a_on[i] = base_on + (1 if i < rem_on else 0)
+            a_off = [a_total[i] - a_on[i] for i in range(6)]
+
     h_xg_per = h_xg / max(sum(h_total), 1)
     a_xg_per = a_xg / max(sum(a_total), 1)
     h_xgot_per = h_xgot / max(h_shots_on_total, 1)
