@@ -553,6 +553,22 @@ def main():
     safe_b = args.player_b.replace(" ", "_")
     output_path = args.output or f"{compare_dir}/{safe_a}_vs_{safe_b}.png"
 
+    # 加载 LLM 点评
+    v6_path = f"data/computed/{args.match_id}_players_v6.json"
+    llm_a = ""
+    llm_b = ""
+    if os.path.exists(v6_path):
+        v6 = json.load(open(v6_path, "r", encoding="utf-8"))
+        for pi in v6:
+            if pi.get("name") == args.player_a:
+                llm_a = pi.get("llm_summary", "")
+            elif pi.get("name") == args.player_b:
+                llm_b = pi.get("llm_summary", "")
+    if llm_a:
+        print(f"  {args.player_a} LLM: {llm_a[:40]}...")
+    if llm_b:
+        print(f"  {args.player_b} LLM: {llm_b[:40]}...")
+
     # ── 构建全场最终比分（含加时/点球） ──
     full_score = _build_full_score(score, raw)
 
@@ -566,6 +582,8 @@ def main():
         player_a=player_a_data,
         player_b=player_b_data,
         output_path=output_path,
+        llm_a=llm_a,
+        llm_b=llm_b,
     )
     print(f"  完成!")
 

@@ -1,28 +1,28 @@
 """
-球员贡献对比图 — matplotlib 暗色主题，左右对称 + 中央雷达图。
+球员贡献对比图 — matplotlib 暗色主题，雷达居中 + LLM点评 + 紧凑对比。
 
 布局：
 ┌─────────────────────────────────────┐
 │           比赛标题                   │
 ├─────────┬──────────┬───────────────┤
-│ 球员A   │   C1-C5  │   球员B       │
-│ 头像    │  五维雷达 │   头像        │
-│ 姓名#   │          │   姓名#       │
-│ 时长    │          │   时长        │
-│ 基本指标│          │   基本指标     │
-│ C1 分组 │          │   C2 分组     │
-│ ...     │          │   ...         │
+│ LLM点评 │   C1-C5  │   LLM点评     │
+│ (左侧)  │  五维雷达 │   (右侧)     │
 ├─────────┴──────────┴───────────────┤
+│   球员A基本信息  |  球员B基本信息     │
+├─────────────────────────────────────┤
+│  C1-C5指标表格A  |  C1-C5指标表格B  │
+├─────────────────────────────────────┤
 │         说明脚注                     │
 └─────────────────────────────────────┘
 
-2026-06-10 v2: 全部指标、紧凑列、副标题、修复越界
+2026-06-12 v3: 雷达上移+LLM点评左右+双方信息紧凑
 """
 from __future__ import annotations
 
 import math
 import os
 import io
+import textwrap
 from typing import Optional
 
 import matplotlib
@@ -152,105 +152,125 @@ def plot_player_comparison(
     player_a: dict,
     player_b: dict,
     output_path: str,
+    llm_a: str = "",
+    llm_b: str = "",
     dpi: int = 150,
 ):
-    # ── 预计算两侧面板高度 ──
-    def _panel_h(player: dict) -> float:
+    # ── 布局参数 ──
+    margin = 0.35
+    header_h = 0.60
+    footer_h = 0.30
+
+    llm_w = 2.30          # 左右 LLM 文字列宽
+    radar_w = 4.00        # 雷达图区域宽
+    gap = 0.20            # LLM↔雷达间距
+    total_w = margin + llm_w + gap + radar_w + gap + llm_w + margin
+
+    radar_row_h = 3.00    # 雷达+LLM 行高
+    info_row_h = 1.90     # 球员基本信息行高
+
+    # 球员信息面板：左右居中对称，各宽 3.20 英寸，间距 0.50 英寸
+    mid_x = total_w / 2
+    info_panel_w = 3.20
+    info_panel_gap = 0.50
+    info_total_span = info_panel_w * 2 + info_panel_gap
+    info_left_x0 = mid_x - info_total_span / 2
+    info_right_x0 = mid_x + info_panel_gap / 2
+
+    # ── 维度表格高度 ──
+    def _dim_table_h(player: dict) -> float:
         h = 0.0
-        h += 1.25                                 # 头像 + 姓名 + 时长
-        h += 0.08 + 3 * 0.20                       # "基本指标" 标题 + 3行
-        h += 0.10                                  # gap
         for dim in DIM_LABELS:
-            h += 0.22                              # 维度标题行
-            h += 0.18                              # 表头
             rows = len(player.get("dim_tables", {}).get(dim, []))
-            h += rows * 0.20
-            h += 0.10                              # gap
-        h += 0.20                                  # bottom pad
-        return h
+            if rows:
+                h += 0.20 + 0.17 + rows * 0.18 + 0.08
+        return h + 0.10
 
-    panel_h = max(_panel_h(player_a), _panel_h(player_b), 6.0)
+    dim_h = max(_dim_table_h(player_a), _dim_table_h(player_b), 2.0)
 
-    # ── 全局尺寸 ──
-    margin = 0.40
-    left_w = 3.60        # 左侧面板宽度
-    right_w = 3.60       # 右侧面板宽度
-    header_h = 0.65      # 标题栏高度
-    footer_h = 0.35
-    gap_lr = 0.30        # 面板与雷达图间距
-    total_w = margin + left_w + gap_lr + 4.5 + gap_lr + right_w + margin
-    total_h = header_h + panel_h + footer_h + margin * 2
+    total_h = header_h + radar_row_h + info_row_h + dim_h + footer_h + margin * 2
 
     fig = plt.figure(figsize=(total_w, total_h), dpi=dpi)
     fig.patch.set_facecolor(BG_COLOR)
 
-    # ══════════════════════════ 标题（含队徽） ══════════════════════════
+    # ═══════════════════ 标题 ═══════════════════
     title_ax = fig.add_axes([0, (total_h - header_h - margin) / total_h, 1, header_h / total_h])
-    title_ax.set_xlim(0, 1)
-    title_ax.set_ylim(0, 1)
-    title_ax.axis("off")
+    title_ax.set_xlim(0, 1); title_ax.set_ylim(0, 1); title_ax.axis("off")
     title_ax.set_facecolor(BG_COLOR)
-
     title_ax.text(0.5, 0.78, match_title, transform=title_ax.transAxes,
                   fontsize=14, color=TEXT_COLOR, ha="center", va="center", fontweight="bold")
-    title_ax.text(0.5, 0.32, "球员贡献对比", transform=title_ax.transAxes,
+    title_ax.text(0.5, 0.28, "球员贡献对比", transform=title_ax.transAxes,
                   fontsize=11, color=MUTED_COLOR, ha="center", va="center")
 
-    # ══════════════════════════ 底部脚注 ══════════════════════════
-    footer_ax = fig.add_axes([0, 0, 1, footer_h / total_h])
-    footer_ax.set_xlim(0, 1)
-    footer_ax.set_ylim(0, 1)
-    footer_ax.axis("off")
-    footer_ax.set_facecolor(BG_COLOR)
-    footer_ax.text(0.5, 0.55, "* 分组按 C1-C5 贡献检测维度；队排=队内排名，场排=全场外场球员排名",
-                   transform=footer_ax.transAxes, fontsize=7.5, color=MUTED_COLOR,
-                   ha="center", va="center")
+    # ═══════════════════ 雷达行：LLM_A │ 雷达 │ LLM_B ═══════════════════
+    radar_y0 = footer_h + dim_h + info_row_h + margin
+    radar_row_ax = fig.add_axes([0, radar_y0 / total_h, 1, radar_row_h / total_h])
+    radar_row_ax.set_xlim(0, total_w); radar_row_ax.set_ylim(0, radar_row_h)
+    radar_row_ax.axis("off"); radar_row_ax.set_facecolor(BG_COLOR)
 
-    # ══════════════════════════ 主绘图区 ══════════════════════════
-    # 使用 figure-level 坐标（英寸），直接用 add_axes
-    x_data = margin
-    y_data = footer_h
-    w_data = total_w - 2 * margin
-    h_data = panel_h
+    # LLM 文字（左右）
+    for side, llm_text, color in [("left", llm_a, HOME_COLOR), ("right", llm_b, AWAY_COLOR)]:
+        if not llm_text:
+            continue
+        x0 = margin if side == "left" else margin + llm_w + gap + radar_w + gap
+        # 标题
+        radar_row_ax.text(x0 + llm_w / 2, radar_row_h - 0.25, "球员点评",
+                          fontsize=10, color=color, ha="center", va="center", fontweight="bold")
+        # 正文（自动换行）
+        wrapped = textwrap.fill(llm_text, width=16)
+        lines = wrapped.split("\n")
+        line_h = 0.17
+        text_y = radar_row_h - 0.60
+        for li in lines[:10]:  # 最多 10 行
+            radar_row_ax.text(x0 + llm_w / 2, text_y, li, fontsize=7.5,
+                              color=MUTED_COLOR, ha="center", va="center")
+            text_y -= line_h
 
-    main_ax = fig.add_axes([x_data / total_w, y_data / total_h,
-                            w_data / total_w, h_data / total_h])
-    main_ax.set_xlim(0, w_data)
-    main_ax.set_ylim(0, panel_h)
-    main_ax.axis("off")
-    main_ax.set_facecolor(BG_COLOR)
-
-    # ── 两侧面板 x 范围 ──
-    left_x0 = 0.0
-    right_x0 = w_data - right_w
-
-    _draw_player_panel(main_ax, player_a, left_x0, 0, left_w, panel_h)
-    _draw_player_panel(main_ax, player_b, right_x0, 0, right_w, panel_h)
-
-    # ── 雷达图区域（面板之间，上移与球员基本信息对齐） ──
-    radar_x0 = left_w + gap_lr
-    radar_x1 = right_x0 - gap_lr
-    radar_cx = (radar_x0 + radar_x1) / 2
-    # 基本信息区从 panel_h 往下约 2.0 英寸 → 雷达圆心放在 panel_h - 1.0
-    radar_cy = panel_h - 1.0
-    radar_r = min((radar_x1 - radar_x0) / 2.2, 1.0)
-
-    _draw_radar(main_ax, player_a, player_b,
+    # 雷达图
+    radar_cx = llm_w + gap + radar_w / 2 + margin
+    radar_cy = radar_row_h / 2
+    radar_r = min(radar_w / 2.4, radar_row_h / 2.5)
+    _draw_radar(radar_row_ax, player_a, player_b,
                 center=(radar_cx, radar_cy), radius=radar_r,
                 home_color=HOME_COLOR, away_color=AWAY_COLOR)
 
-    # ── 雷达图图例（雷达下方，不重叠） ──
-    legend_y = radar_cy - radar_r * 1.35
-    lx1 = radar_cx - 1.5
+    # 雷达图例（底部居中）
+    leg_y = radar_cy - radar_r - 0.55
+    lx1 = radar_cx - 1.6
     lx2 = radar_cx + 0.3
-    main_ax.plot([lx1, lx1 + 0.40], [legend_y, legend_y],
-                 color=HOME_COLOR, linewidth=2, marker="o", markersize=5, zorder=4)
-    main_ax.text(lx1 + 0.48, legend_y, player_a["name"], fontsize=8, color=HOME_COLOR,
-                 va="center", fontweight="bold")
-    main_ax.plot([lx2, lx2 + 0.40], [legend_y, legend_y],
-                 color=AWAY_COLOR, linewidth=2, linestyle="--", marker="s", markersize=5, zorder=4)
-    main_ax.text(lx2 + 0.48, legend_y, player_b["name"], fontsize=8, color=AWAY_COLOR,
-                 va="center", fontweight="bold")
+    radar_row_ax.plot([lx1, lx1 + 0.35], [leg_y, leg_y],
+                      color=HOME_COLOR, linewidth=2, marker="o", markersize=4, zorder=4)
+    radar_row_ax.text(lx1 + 0.42, leg_y, player_a["name"], fontsize=7.5, color=HOME_COLOR,
+                      va="center", fontweight="bold")
+    radar_row_ax.plot([lx2, lx2 + 0.35], [leg_y, leg_y],
+                      color=AWAY_COLOR, linewidth=2, linestyle="--", marker="s", markersize=4, zorder=4)
+    radar_row_ax.text(lx2 + 0.42, leg_y, player_b["name"], fontsize=7.5, color=AWAY_COLOR,
+                      va="center", fontweight="bold")
+
+    # ═══════════════════ 球员基本信息行（左右并排，垂直布局） ═══════════════════
+    info_y0 = footer_h + dim_h + margin
+    info_ax = fig.add_axes([0, info_y0 / total_h, 1, info_row_h / total_h])
+    info_ax.set_xlim(0, total_w); info_ax.set_ylim(0, info_row_h)
+    info_ax.axis("off"); info_ax.set_facecolor(BG_COLOR)
+
+    _draw_player_info_compact(info_ax, player_a, info_left_x0, 0, info_panel_w, info_row_h, HOME_COLOR)
+    _draw_player_info_compact(info_ax, player_b, info_right_x0, 0, info_panel_w, info_row_h, AWAY_COLOR)
+
+    # ═══════════════════ C1-C5 维度表格 ═══════════════════
+    dim_y0 = footer_h + margin
+    dim_ax = fig.add_axes([0, dim_y0 / total_h, 1, dim_h / total_h])
+    dim_ax.set_xlim(0, total_w); dim_ax.set_ylim(0, dim_h)
+    dim_ax.axis("off"); dim_ax.set_facecolor(BG_COLOR)
+
+    _draw_dim_table(dim_ax, player_a, info_left_x0, dim_h, info_panel_w, HOME_COLOR)
+    _draw_dim_table(dim_ax, player_b, info_right_x0, dim_h, info_panel_w, AWAY_COLOR)
+
+    # ═══════════════════ 脚注 ═══════════════════
+    footer_ax = fig.add_axes([0, 0, 1, footer_h / total_h])
+    footer_ax.set_xlim(0, 1); footer_ax.set_ylim(0, 1); footer_ax.axis("off")
+    footer_ax.set_facecolor(BG_COLOR)
+    footer_ax.text(0.5, 0.55, "* 分组按 C1-C5 贡献检测维度；队排=队内排名，场排=全场外场球员排名",
+                   transform=footer_ax.transAxes, fontsize=7.5, color=MUTED_COLOR, ha="center", va="center")
 
     # ── 保存 ──
     out_dir = os.path.dirname(output_path)
@@ -261,25 +281,24 @@ def plot_player_comparison(
     plt.close(fig)
 
 
-def _draw_player_panel(ax, player: dict, x0: float, y_bot: float,
-                       panel_w: float, panel_h: float):
-    """绘制单个球员面板。坐标系: ax 内部 (0,0) 为面板左上角起点。"""
-    y_top = panel_h
-    color = HOME_COLOR if player["team"] == "home" else AWAY_COLOR
+# ═══════════════════════ 紧凑球员信息 ═══════════════════════
+
+def _draw_player_info_compact(ax, player: dict, x0: float, y_bot: float, w: float, h: float, color: str):
+    """绘制球员基本信息面板：头像 + 姓名# + 出场 + 跑动/推进 + 进球/助攻/关键事件。
+    参数 y_bot=面板底部 y 坐标, h=面板高度。"""
+    y_top = y_bot + h
 
     # ── 面板背景 ──
-    rect = mpatches.FancyBboxPatch((x0 + 0.08, y_bot + 0.08),
-                                    panel_w - 0.16, y_top - y_bot - 0.16,
-                                    boxstyle="round,pad=0.12", linewidth=1.0,
+    rect = mpatches.FancyBboxPatch((x0, y_bot + 0.06), w, h - 0.12,
+                                    boxstyle="round,pad=0.08", linewidth=0.8,
                                     edgecolor=TABLE_BORDER, facecolor=CARD_BG, zorder=1)
     ax.add_patch(rect)
 
-    inner_x = x0 + 0.28
-    inner_w = panel_w - 0.56
-    cy = y_top - 0.40
+    inner_x = x0 + 0.10
+    cy = y_top - 0.32
 
     # ── 头像 ──
-    photo_r = 0.30
+    photo_r = 0.28
     photo_cx = inner_x + photo_r
     photo_url = player.get("photo_url", "")
     photo_img = _fetch_image(photo_url) if photo_url else None
@@ -293,7 +312,7 @@ def _draw_player_panel(ax, player: dict, x0: float, y_bot: float,
                                 linewidth=1.5, zorder=3))
 
     # ── 姓名 + 号码 ──
-    name_x = photo_cx + photo_r + 0.15
+    name_x = photo_cx + photo_r + 0.12
     num = str(player.get("number", "") or "")
     display_name = player["name"]
     ax.text(name_x, cy + 0.08, f"{display_name}  #{num}",
@@ -301,78 +320,80 @@ def _draw_player_panel(ax, player: dict, x0: float, y_bot: float,
 
     # ── 出场时间 ──
     mins = player.get("minutes", 0)
-    ax.text(name_x, cy - 0.26, f"出场 {mins}'",
+    ax.text(name_x, cy - 0.23, f"出场 {mins}'",
             fontsize=8.5, color=MUTED_COLOR, va="center")
 
-    # ── 跑动/推进距离（有数据时展示） ──
+    # ── 跑动/推进距离 ──
     run_km = player.get("run_km")
     carry_km = player.get("carry_km")
-    phys_texts = []
+    phys_parts = []
     if run_km is not None:
-        phys_texts.append(f"跑动 {run_km:.1f} km")
+        phys_parts.append(f"跑动 {run_km:.1f} km")
     if carry_km is not None:
-        phys_texts.append(f"推进 {carry_km:.2f} km")
-    if phys_texts:
-        ax.text(name_x, cy - 0.49, "  ".join(phys_texts),
+        phys_parts.append(f"推进 {carry_km:.2f} km")
+    if phys_parts:
+        ax.text(name_x, cy - 0.44, "  ".join(phys_parts),
                 fontsize=8, color="#3fb950", va="center")
 
-    cy -= 0.72
-
-    # ── 基本指标（3行） ──
+    # ── 进球 / 助攻 / 关键事件 ──
     label_x = inner_x + 0.05
-    val_x = inner_x + 1.90
-    ax.text(label_x, cy, "基本指标", fontsize=8.5, color=MUTED_COLOR, va="center",
-            fontweight="bold")
-    cy -= 0.22
-
+    cy2 = y_top - 1.15
     goals = player.get("goals", 0) or 0
     assists = player.get("assists", 0) or 0
     key_events = player.get("key_events", "") or "-"
     basic = [("进球", str(goals)), ("助攻", str(assists)), ("关键事件", key_events)]
     for lbl, val in basic:
-        ax.text(label_x, cy, lbl, fontsize=8.5, color=MUTED_COLOR, va="center")
-        ax.text(val_x, cy, val, fontsize=8.5, color=TEXT_COLOR, va="center",
-                fontweight="bold")
-        cy -= 0.20
+        ax.text(label_x, cy2, lbl, fontsize=8.5, color=MUTED_COLOR, va="center")
+        ax.text(label_x + 1.80, cy2, val, fontsize=8.5, color=TEXT_COLOR, va="center", fontweight="bold")
+        cy2 -= 0.20
 
-    cy -= 0.12
 
-    # ── 维度分组表格 ──
+# ═══════════════════════ 维度表格 ═══════════════════════
+
+def _draw_dim_table(ax, player: dict, x0: float, y_top: float, w: float, color: str):
+    """在指定区域绘制 C1-C5 维度指标表格。"""
+    # 背景
+    rect = mpatches.FancyBboxPatch((x0, 0.04), w, y_top - 0.08,
+                                    boxstyle="round,pad=0.10", linewidth=0.8,
+                                    edgecolor=TABLE_BORDER, facecolor=CARD_BG, zorder=1)
+    ax.add_patch(rect)
+
+    inner_x = x0 + 0.14
+    cy = y_top - 0.25
+
     dim_tables = player.get("dim_tables", {})
     for dim_label in DIM_LABELS:
         subtitle = DIM_SUBTITLES.get(dim_label, "")
         rows = dim_tables.get(dim_label, [])
+        if not rows:
+            continue
 
-        # 维度标题行（带副标题）
-        ax.text(label_x, cy, dim_label, fontsize=9.5, color=color,
-                va="center", fontweight="bold")
-        ax.text(label_x + 0.50, cy, subtitle, fontsize=7.5, color=MUTED_COLOR,
-                va="center")
-        cy -= 0.24
+        # 维度标题
+        ax.text(inner_x, cy, dim_label, fontsize=8.5, color=color, va="center", fontweight="bold")
+        ax.text(inner_x + 0.42, cy, subtitle, fontsize=7, color=MUTED_COLOR, va="center")
+        cy -= 0.20
 
         # 表头
-        hd_metric = label_x
-        hd_val = inner_x + 1.60
-        hd_team = inner_x + 2.25
-        hd_field = inner_x + 2.75
-        for pos, txt in [(hd_metric, "指标"), (hd_val, "值"), (hd_team, "队排"), (hd_field, "场排")]:
-            ax.text(pos, cy, txt, fontsize=7.5, color=MUTED_COLOR, va="center")
-        cy -= 0.19
+        hd_val = inner_x + 2.00
+        hd_team = inner_x + 2.55
+        hd_field = inner_x + 2.95
+        for pos, txt in [(inner_x, "指标"), (hd_val, "值"), (hd_team, "队排"), (hd_field, "场排")]:
+            ax.text(pos, cy, txt, fontsize=7, color=MUTED_COLOR, va="center")
+        cy -= 0.17
 
         for metric_name, value, team_rank, overall_rank, *_ in rows:
-            ax.text(hd_metric, cy, metric_name, fontsize=8, color=TEXT_COLOR, va="center")
-            ax.text(hd_val, cy, _fmt_val(value), fontsize=8, color=TEXT_COLOR, va="center")
-            ax.text(hd_team, cy, str(team_rank), fontsize=8, color=_rank_color(team_rank),
+            ax.text(inner_x, cy, metric_name, fontsize=7.5, color=TEXT_COLOR, va="center")
+            ax.text(hd_val, cy, _fmt_val(value), fontsize=7.5, color=TEXT_COLOR, va="center")
+            ax.text(hd_team, cy, str(team_rank), fontsize=7.5, color=_rank_color(team_rank),
                     va="center", fontweight="bold")
-            ax.text(hd_field, cy, str(overall_rank), fontsize=8, color=_rank_color(overall_rank),
+            ax.text(hd_field, cy, str(overall_rank), fontsize=7.5, color=_rank_color(overall_rank),
                     va="center", fontweight="bold")
-            cy -= 0.20
+            cy -= 0.18
 
-        # 分割线 — 使用数据坐标（ax 的 y 轴）
-        sep_y = cy + 0.08
-        ax.plot([inner_x, inner_x + inner_w], [sep_y, sep_y],
-                color=TABLE_BORDER, linewidth=0.6, alpha=0.5, zorder=1)
-        cy -= 0.10
+        sep_y = cy + 0.06
+        ax.plot([inner_x, inner_x + w - 0.28], [sep_y, sep_y],
+                color=TABLE_BORDER, linewidth=0.5, alpha=0.4, zorder=1)
+        cy -= 0.08
 
 
 def _draw_radar(ax, player_a: dict, player_b: dict,
@@ -476,6 +497,7 @@ def build_player_comparison_data(
     all_players: list,             # 全场 PlayerData 列表
     run_km: float = None,          # 跑动距离 (km)
     carry_km: float = None,        # 带球推进距离 (km)
+    llm_summary: str = "",         # LLM 分析点评
 ):
     pd = next((p for p in player_data_list if p.name == player_name), None)
     if pd is None:
@@ -554,6 +576,7 @@ def build_player_comparison_data(
         "dim_tables": dim_tables,
         "run_km": run_km,
         "carry_km": carry_km,
+        "llm_summary": llm_summary,
     }
 
 
