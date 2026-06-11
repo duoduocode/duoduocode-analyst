@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8">
+<title>Vitinha — 增强版球员贡献卡片</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:#0a0e1a;color:#c9d1d9;display:flex;justify-content:center;padding:30px 0}
+.card{width:960px;background:#0d1117;border-radius:12px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+
+/* ── SECTION ── */
+.sec{padding:20px 24px}
+.sec-hd{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.sec-hd .ico{font-size:18px}
+.sec-hd .tt{font-size:15px;font-weight:800;color:#f0f6fc;letter-spacing:.5px}
+.sec-hd .sub{font-size:11px;color:#8b949e;margin-left:8px}
+
+/* ── HEADER ── */
+.hd{display:flex;align-items:center;gap:18px;padding:24px 24px 16px;background:linear-gradient(180deg,#161b22 0%,#0d1117 100%);border-bottom:1px solid #21262d}
+.pw{width:72px;height:72px;border-radius:50%;overflow:hidden;flex-shrink:0;border:3px solid #58a6ff;background:#21262d;display:flex;align-items:center;justify-content:center;font-size:28px;color:#58a6ff;font-weight:bold}
+.pw img{width:100%;height:100%;object-fit:cover}
+.hi{flex:1;min-width:0}
+.pn{font-size:26px;font-weight:800;color:#f0f6fc;letter-spacing:.4px}
+.pm{display:flex;gap:8px;margin-top:6px;font-size:13px;align-items:center;flex-wrap:wrap}
+.chip{background:#161b22;padding:3px 10px;border-radius:4px;border:1px solid #30363d;color:#8b949e;font-weight:600}
+.key-badge{background:#1f6feb;color:#fff;font-size:11px;padding:3px 8px;border-radius:3px;font-weight:700;margin-left:6px}
+.su{font-size:13px;color:#8b949e;margin-top:8px;line-height:1.6;font-weight:600}
+.run-chip{color:#3fb950 !important;border-color:#3fb95044 !important}
+.carry-chip{color:#d2991d !important;border-color:#d2991d44 !important}
+
+/* ── DIM CARDS (reuse existing style) ── */
+.dim-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.dc{background:#161b22;border-radius:8px;overflow:hidden;border:1px solid #21262d}
+.dc-hd{display:flex;align-items:center;padding:9px 14px;gap:8px;background:#161b22}
+.dc-tag{font-size:15px;font-weight:800;letter-spacing:.3px}
+.dc-sub{font-size:11px;color:#8b949e;font-weight:600;margin-left:4px}
+.mt{width:100%;border-collapse:collapse}
+.mt th{font-size:11px;color:#8b949e;text-align:left;padding:5px 10px 5px 14px;font-weight:600;border-bottom:1px solid #21262d;background:#0d111744}
+.mt th:nth-child(2){text-align:center;width:56px}
+.mt th:nth-child(3),.mt th:nth-child(4){text-align:center;width:36px}
+.mt td{font-size:12px;padding:5px 10px 5px 14px;border-top:1px solid #1a1f2b}
+.mn{color:#b0b8c4;font-weight:600}
+.mv{color:#f0f6fc;text-align:center;font-weight:700}
+.mr{text-align:center;color:#8b949e;font-size:12px;font-weight:600}
+.mo{text-align:center;color:#58a6ff;font-weight:700;font-size:12px}
+tr.hl{background:#3d290022}
+tr.hl td.mn{color:#d2991d}
+tr.hl td.mv{color:#d2991d;font-weight:800}
+tr.hl td.mr,tr.hl td.mo{color:#d2991d;font-weight:700}
+
+/* ── FOOTER ── */
+.ft{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-top:1px solid #21262d;background:#0d1117;font-size:11px;color:#484f58}
+</style></head>
+<body>
+<div class="card">
+
+  <!-- HEADER -->
+  <div class="hd">
+    <div class="pw"><img src="https://cdn.sportmonks.com/images/soccer/players/22/4545430.png" /></div>
+    <div class="hi">
+      <div class="pn">Vitinha <span class="key-badge">关键球员</span></div>
+      <div class="pm">
+        <span class="chip">#17</span>
+        <span class="chip">MF · 106&prime;</span>
+        <span class="chip" style="color:#58a6ff">Paris Saint Germain</span>
+        <span class="chip run-chip">跑动距离 12.3 km</span>
+        <span class="chip carry-chip">带球推进 0.54 km</span>
+      </div>
+      <div class="su">控场大师的本色尽显，150次传球、141次成功与94%成功率，触球162次把节奏牢牢攥在掌心。4次射门虽未能破门，但他像精密齿轮带动全队运转，只是常规时间未能将控球优势转化为制胜进球。</div>
+    </div>
+  </div>
+
+  <!-- DIM CONTRIBUTION -->
+  <div class="sec">
+    <div class="sec-hd"><span class="ico">&#x1F3AF;</span><span class="tt">贡献维度</span><span class="sub">Contribution Breakdown</span></div>
+    <div class="dim-grid">
+    <div class="dc">
+      <div class="dc-hd" style="border-bottom:1px solid #f7816633">
+        <span class="dc-tag" style="color:#f78166">进攻贡献</span>
+        <span class="dc-sub">队排第5名</span>
+      </div>
+      <table class="mt">
+        <thead><tr><th>指标</th><th>数值</th><th>队排</th><th>场排</th></tr></thead>
+        <tbody><tr class=""><td class="mn">shooting_performance</td><td class="mv">-0.2</td><td class="mr">15</td><td class="mo">31</td></tr><tr class=" hl"><td class="mn">射门</td><td class="mv">4</td><td class="mr">2</td><td class="mo">2</td></tr><tr class=" hl"><td class="mn">创造机会</td><td class="mv">3</td><td class="mr">2</td><td class="mo">2</td></tr><tr class=" hl"><td class="mn">关键传球</td><td class="mv">3</td><td class="mr">2</td><td class="mo">2</td></tr><tr class=" hl"><td class="mn">shots_blocked</td><td class="mv">2</td><td class="mr">1</td><td class="mo">1</td></tr><tr class=" hl"><td class="mn">shots_off</td><td class="mv">2</td><td class="mr">4</td><td class="mo">4</td></tr></tbody>
+      </table>
+    </div>
+    <div class="dc">
+      <div class="dc-hd" style="border-bottom:1px solid #58a6ff33">
+        <span class="dc-tag" style="color:#58a6ff">推进贡献</span>
+        <span class="dc-sub">队排第6名</span>
+      </div>
+      <table class="mt">
+        <thead><tr><th>指标</th><th>数值</th><th>队排</th><th>场排</th></tr></thead>
+        <tbody><tr class=" hl"><td class="mn">进攻三区传球</td><td class="mv">13</td><td class="mr">4</td><td class="mo">4</td></tr><tr class=" hl"><td class="mn">长传</td><td class="mv">7</td><td class="mr">2</td><td class="mo">3</td></tr><tr class=" hl"><td class="mn">成功长传</td><td class="mv">4</td><td class="mr">2</td><td class="mo">2</td></tr><tr class=""><td class="mn">成功过人</td><td class="mv">0</td><td class="mr">13</td><td class="mo">16</td></tr><tr class=" hl"><td class="mn">尝试过人</td><td class="mv">2</td><td class="mr">4</td><td class="mo">5</td></tr><tr class=""><td class="mn">crosses</td><td class="mv">0</td><td class="mr">13</td><td class="mo">20</td></tr></tbody>
+      </table>
+    </div>
+    <div class="dc">
+      <div class="dc-hd" style="border-bottom:1px solid #3fb95033">
+        <span class="dc-tag" style="color:#3fb950">控制贡献</span>
+        <span class="dc-sub">队排第1名</span>
+      </div>
+      <table class="mt">
+        <thead><tr><th>指标</th><th>数值</th><th>队排</th><th>场排</th></tr></thead>
+        <tbody><tr class=" hl"><td class="mn">总传球</td><td class="mv">150</td><td class="mr">1</td><td class="mo">1</td></tr><tr class=" hl"><td class="mn">准确传球</td><td class="mv">141</td><td class="mr">1</td><td class="mo">1</td></tr><tr class=" hl"><td class="mn">触球</td><td class="mv">162</td><td class="mr">1</td><td class="mo">1</td></tr><tr class=" hl"><td class="mn">possession_lost</td><td class="mv">13</td><td class="mr">5</td><td class="mo">7</td></tr><tr class=" hl"><td class="mn">dispossessed</td><td class="mv">1</td><td class="mr">5</td><td class="mo">6</td></tr><tr class=" hl"><td class="mn">传球成功率</td><td class="mv">94.0%</td><td class="mr">4</td><td class="mo">6</td></tr></tbody>
+      </table>
+    </div>
+    <div class="dc">
+      <div class="dc-hd" style="border-bottom:1px solid #bc8cff33">
+        <span class="dc-tag" style="color:#bc8cff">防守贡献</span>
+        <span class="dc-sub">队排第11名</span>
+      </div>
+      <table class="mt">
+        <thead><tr><th>指标</th><th>数值</th><th>队排</th><th>场排</th></tr></thead>
+        <tbody><tr class=""><td class="mn">拦截</td><td class="mv">1</td><td class="mr">6</td><td class="mo">7</td></tr><tr class=""><td class="mn">解围</td><td class="mv">0</td><td class="mr">14</td><td class="mo">24</td></tr><tr class=""><td class="mn">error_lead_to_goal</td><td class="mv">0</td><td class="mr">10</td><td class="mo">10</td></tr><tr class=""><td class="mn">抢断</td><td class="mv">0</td><td class="mr">12</td><td class="mo">21</td></tr><tr class=""><td class="mn">tackles_won</td><td class="mv">0</td><td class="mr">12</td><td class="mo">20</td></tr><tr class=""><td class="mn">封堵射门</td><td class="mv">0</td><td class="mr">13</td><td class="mo">17</td></tr></tbody>
+      </table>
+    </div>
+    <div class="dc">
+      <div class="dc-hd" style="border-bottom:1px solid #d2991d33">
+        <span class="dc-tag" style="color:#d2991d">对抗贡献</span>
+        <span class="dc-sub">队排第9名</span>
+      </div>
+      <table class="mt">
+        <thead><tr><th>指标</th><th>数值</th><th>队排</th><th>场排</th></tr></thead>
+        <tbody><tr class=" hl"><td class="mn">球权回收</td><td class="mv">5</td><td class="mr">5</td><td class="mo">6</td></tr><tr class=""><td class="mn">赢得对抗</td><td class="mv">1</td><td class="mr">13</td><td class="mo">25</td></tr><tr class=""><td class="mn">赢得空中</td><td class="mv">0</td><td class="mr">14</td><td class="mo">20</td></tr><tr class=" hl"><td class="mn">duels_lost</td><td class="mv">3</td><td class="mr">4</td><td class="mo">7</td></tr><tr class=""><td class="mn">犯规</td><td class="mv">0</td><td class="mr">12</td><td class="mo">22</td></tr><tr class=""><td class="mn">对抗成功率</td><td class="mv">0.000</td><td class="mr">13</td><td class="mo">16</td></tr></tbody>
+      </table>
+    </div></div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="ft">
+    <div>Paris Saint Germain</div>
+    <div>队排 = 队内排名 &nbsp; 场排 = 全场排名 &nbsp; 黄色标记 = 队排/场排 Top 5</div>
+  </div>
+
+</div>
+</body></html>

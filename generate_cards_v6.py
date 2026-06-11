@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse, json, os, sys, base64
+from typing import List, Optional
 
 import requests
 
@@ -151,8 +152,10 @@ def build_card_html(
     player_name: str, jersey: str, pos: str, team_name: str,
     minutes: int, photo_data: str, logo_data: str,
     llm_summary: str, is_key: bool,
-    dim_cards: list[dict],
-    events: list[str],
+    dim_cards: List[dict],
+    events: List[str],
+    run_km: Optional[float] = None,
+    carry_km: Optional[float] = None,
 ) -> str:
     s = STYLE
 
@@ -234,6 +237,13 @@ def build_card_html(
 
     pos_label = POS_EMOJI.get(pos, pos)
 
+    # Build physical data chips
+    phys_chips = ""
+    if run_km is not None:
+        phys_chips += f'<span class="chip" style="color:#3fb950;border-color:#3fb95044">跑动距离 {run_km:.1f} km</span>'
+    if carry_km is not None:
+        phys_chips += f'<span class="chip" style="color:#d2991d;border-color:#d2991d44">带球推进 {carry_km:.2f} km</span>'
+
     html = f"""<!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -290,6 +300,7 @@ tr.hl td.mr,tr.hl td.mo{{color:{s["highlight_text"]};font-weight:700}}
     <div class="pm">
       <span class="chip">#{jersey}</span>
       <span class="chip">{pos_label} · {minutes}&prime;</span>
+      {phys_chips}
     </div>
     {ev_html}
     <div class="su">{sum_text}</div>
@@ -314,7 +325,47 @@ tr.hl td.mr,tr.hl td.mo{{color:{s["highlight_text"]};font-weight:700}}
 # Data builder from JSON
 # ═══════════════════════════════════════════════════════════════
 
-def build_cards_from_json(json_path: str, raw_path: str) -> list[dict]:
+def _load_physical_data(match_id: int, player_name: str) -> tuple:
+    """Try loading run/carry data. Returns (run_km, carry_km) or (None, None).
+
+    兼容以下异常情况（均返回 None）：
+    - data/{match_id}/ 目录不存在
+    - data/{match_id}/{player_name}/ 目录不存在
+    - run_data.json 或 carry_data.json 不存在/格式异常/缺失字段
+    """
+    data_dir = os.path.join("data", str(match_id), player_name)
+    run_km = None
+    carry_km = None
+
+    # ── 跑动数据 ──
+    run_path = os.path.join(data_dir, "run_data.json")
+    if os.path.isfile(run_path):
+        try:
+            run = json.load(open(run_path, "r", encoding="utf-8"))
+            run_km = 0.0
+            for k in ("Walking + jogging", "Running", "High-speed running", "Sprinting"):
+                val = run.get(k)
+                if val is None:
+                    continue
+                run_km += float(str(val).split()[0])
+        except (json.JSONDecodeError, FileNotFoundError, KeyError, ValueError, IndexError):
+            pass
+
+    # ── 带球推进数据 ──
+    carry_path = os.path.join(data_dir, "carry_data.json")
+    if os.path.isfile(carry_path):
+        try:
+            carry = json.load(open(carry_path, "r", encoding="utf-8"))
+            val = carry.get("Total carrying distance")
+            if val is not None:
+                carry_km = float(str(val).split()[0]) / 1000.0
+        except (json.JSONDecodeError, FileNotFoundError, KeyError, ValueError, IndexError):
+            pass
+
+    return run_km, carry_km
+
+
+def build_cards_from_json(json_path: str, raw_path: str, match_id: int) -> List[dict]:
     """Read v6 JSON + raw data and build card data dicts."""
     data = json.load(open(json_path, "r", encoding="utf-8"))
     raw = json.load(open(raw_path, "r", encoding="utf-8"))
@@ -420,6 +471,9 @@ def build_cards_from_json(json_path: str, raw_path: str) -> list[dict]:
 
         events = pi.get("events", [])
 
+        # Load physical data (run + carry) if available
+        run_km, carry_km = _load_physical_data(match_id, name)
+
         results.append({
             "name": name, "jersey": str(pi.get("number", "")),
             "pos": pi["pos"], "team_name": team_name,
@@ -427,6 +481,7 @@ def build_cards_from_json(json_path: str, raw_path: str) -> list[dict]:
             "photo_url": photo_url, "logo_url": logo_url,
             "llm_summary": pi.get("llm_summary", ""),
             "is_key": is_key, "dim_cards": dim_cards, "events": events,
+            "run_km": run_km, "carry_km": carry_km,
         })
 
     return results
@@ -449,6 +504,7 @@ def render_card_png(card_data: dict, output_path: str):
         logo_data=logo_data, llm_summary=card_data["llm_summary"],
         is_key=card_data["is_key"], dim_cards=card_data["dim_cards"],
         events=card_data["events"],
+        run_km=card_data.get("run_km"), carry_km=card_data.get("carry_km"),
     )
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
@@ -489,7 +545,7 @@ def main():
         print(f"[ERROR] Raw data not found: {raw_path}")
         sys.exit(1)
 
-    cards = build_cards_from_json(json_path, raw_path)
+    cards = build_cards_from_json(json_path, raw_path, match_id)
 
     # Filter
     if args.player:

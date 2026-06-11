@@ -33,9 +33,11 @@ set SPORTMONKS_API_TOKEN=你的token
 set DEEPSEEK_API_KEY=你的key
 
 # 3. 生成报告
-python run.py --match 19683241                    # 单场完整报告 (PSG vs Arsenal)
-python run.py --match 19683241 --dry-run           # 采集+计算+信号检测，不调 LLM
-python run.py --match 19683241 --no-images         # 跳过图表（matplotlib 不可用时）
+python generate_match_report.py 19683241           # ★ 统一入口：战术 V2 + 球员 V6 一次性生成
+python generate_match_report.py 19683241 --no-llm  # 跳过 LLM（仅数据 + 图表）
+python generate_match_report.py 19683241 --tactical-only  # 仅战术报告
+python generate_match_report.py 19683241 --cards-only    # 仅球员卡片
+python run.py --match 19683241                    # 旧版报告（信号驱动六段叙事）
 python run.py --league 732 --date 2026-06-14       # 批量生成某日全部比赛
 ```
 
@@ -47,9 +49,12 @@ python run.py --league 732 --date 2026-06-14       # 批量生成某日全部比
 duoduocode-analyst/
 ├── config.yaml                          # SportMonks API Token + LLM 配置
 ├── config.example.yaml
-├── run.py                               # 入口脚本（比赛报告）
-├── run_player_v6.py                    # ★ v6 球员贡献入口（Excel + JSON + LLM分析）
-├── generate_cards_v6.py                # ★ v6 球员贡献卡片生成（Playwright → PNG）
+├── generate_match_report.py             # ★★ 统一报告入口（战术 V2 + 球员 V6）
+├── run.py                               # 旧版入口（信号驱动六段叙事）
+├── run_player_v6.py                     # v6 球员贡献独立入口（Excel + JSON + LLM分析）
+├── run_tactical_only.py                 # 战术报告独立入口
+├── compare_players.py                   # 球员对比图生成
+├── generate_cards_v6.py                 # v6 球员贡献卡片生成（Playwright → PNG）
 ├── AGENTS.md                            # 本文档
 ├── prompts/                             # Prompt 模板 (Jinja2+YAML)
 │   ├── narrative.yaml                   # ★ 信号驱动叙事模板（替代旧9模块）
@@ -68,10 +73,14 @@ duoduocode-analyst/
 │   │   ├── trends.py                   # ★ 趋势分析：增量计算/窗口聚合/斜率/转折点
 │   │   ├── signals.py                  # ★ 36 个信号检测器 + Top N 筛选
 │   │   ├── key_events.py               # ★ 统一关键事件判定（首开/绝杀/制胜/点球大战等）
-│   │   └── player_insights_v6.py       # ★ v6 球员贡献检测引擎（七维模型 + LLM分析）
+│   │   ├── player_insights_v6.py       # ★ v6 球员贡献检测引擎（七维模型 + LLM分析）
+│   │   ├── tactical_insights.py        # ★ 战术分析引擎（四层因果模型）
+│   │   ├── cross_insights.py           # 交叉洞察（控球有效性等硬事实）
+│   │   └── sub_impact.py               # 换人影响分析
 │   ├── composer/
 │   │   ├── prompt_loader.py            # YAML 加载 + Jinja2 渲染（不变）
-│   │   └── data_builder.py             # ★ 信号驱动叙事组装（替代旧9模块builder）
+│   │   ├── data_builder.py             # ★ 信号驱动叙事组装（替代旧9模块builder）
+│   │   └── tactical_prompt.py          # ★ 战术叙事 Prompt 构建
 │   ├── generator/
 │   │   └── llm_client.py              # DeepSeek（openai SDK 优先，requests 后备）
 │   ├── visualizer/
@@ -81,30 +90,101 @@ duoduocode-analyst/
 │   │   ├── pass_network.py             # mplsoccer 传球网络图
 │   │   ├── radar.py                    # 球员雷达图 (7维度)
 │   │   ├── subs.py                     # 换人对比柱状图
-│   │   └── xg_hist.py                  # xG 模拟分布图
+│   │   ├── xg_hist.py                  # xG 模拟分布图
+│   │   ├── tactical_charts.py          # ★ 战术图表（雷达/控球/射门/PPDA/时间轴）
+│   │   ├── player_comparison.py        # ★ 球员对比图（双面板 + 雷达图）
+│   │   ├── player_card.py              # ★ 球员贡献卡片
+│   │   ├── lineup.py                   # ★ 阵容图（HTML + PNG）
+│   │   ├── efficiency.py               # 效率对比图
+│   │   └── player_tables.py            # 球员数据表
 │   ├── reporter/
 │   │   ├── build_report.py            # ★ 动态章节报告拼装（基于LLM输出+信号）
 │   │   └── player_excel.py            # ★ v6 球员贡献 Excel 9-sheet 导出
 │   └── player_names.py                # 球员中英文名映射表
 ├── design/                             # 产品文档
-│   ├── SportMonks统计指标全集.md        # 全部可用的球队+球员+事件指标 (type_id映射)
-│   ├── SportMonks_Fixture_Include全集.md # SportMonks 全部 include 参数说明
+│   ├── 比赛报告架构v3.md                # v3 报告架构（三层洞察 × 六段叙事）
+│   ├── 战术分析板块设计-v2.md            # ★ v2 战术分析板块（四层因果模型）
 │   ├── 球员贡献检测器方案-v6.md          # ★ v6 两层叙事模型设计文档
-│   └── 关键事件判定方案.md               # 统一关键事件判定规则
+│   ├── 球员贡献检测器方案-v5.md          # v5 七维贡献模型设计文档
+│   ├── 球员贡献检测器方案.md             # v3 13检测器设计文档
+│   ├── 关键事件判定方案.md               # 统一关键事件判定规则
+│   ├── 比赛概览模块设计.md               # 比赛概览模块设计
+│   ├── SportMonks统计指标全集.md         # 全部可用的球队+球员+事件指标 (type_id映射)
+│   └── SportMonks_Fixture_Include全集.md # SportMonks 全部 include 参数说明
 ├── data/
 │   ├── raw/{match_id}/raw_data.json    # 解析后的结构化数据（含 trends/periods/coaches）
 │   └── computed/{match_id}.json        # 计算后指标 + 检测到的信号
 │   └── computed/{match_id}_players_v6.json # ★ v6 球员贡献 JSON
 │   └── computed/{match_id}_players_v6.xlsx # ★ v6 球员贡献 Excel (9 sheets)
 └── output/{match_id}_{HOME}_vs_{AWAY}/
-    ├── images/*.png                    # 7 张图表
-    ├── report.md                       # 完整图文报告
-    └── report.html                     # HTML 版本
+    ├── tactical_report.html            # ★ 战术分析报告 V2 (HTML)
+    ├── tactical_analysis.json          # 战术原始数据
+    ├── tactical_analysis.xlsx          # 战术 Excel
+    ├── report_v3.html                  # 旧版 v3 报告
+    ├── compare/                        # 球员对比图
+    │   └── PlayerA_vs_PlayerB.png
+    ├── player_cards/                   # 球员贡献卡片 (PNG)
+    ├── images/                         # 图表
+    │   ├── tactical_radar.png          # 战术雷达图
+    │   ├── tactical_shots.png          # 时段射门分布
+    │   ├── tactical_ppda.png           # 压迫强度对比
+    │   ├── tactical_possession.png     # 控球摇摆图
+    │   ├── lineup.png                 # 阵容图
+    │   └── timeline.png               # 事件时间轴
+    └── ...
 ```
 
 ---
 
-## 4. 核心架构与数据流（信号驱动管线）
+## 4. 统一报告生成管线 (generate_match_report.py)
+
+**当前推荐的一次性报告生成方式**，整合战术报告 V2 + 球员贡献 V6。
+
+```
+generate_match_report.py <match_id>
+  │
+  ├─ 1. load_config() + load_match_data()  → 优先读取 data/raw/{id}/raw_data.json 缓存
+  │
+  ├─ 2. compute_full_score()  → 全场最终比分（常规 + 加时 + 点球大战总和）
+  │
+  ├─ 3. 【管道 B】generate_player_contribution_v6()
+  │   ├─ 加载 raw_data.json → run_v6(raw) → list[PlayerInsightV6]
+  │   ├─ LLM 角色分析 (31 名球员，~24K tokens)
+  │   ├─ 保存 JSON → data/computed/{id}_players_v6.json
+  │   └─ 保存 Excel → data/computed/{id}_players_v6.xlsx
+  │
+  ├─ 4. 【管道 A】generate_tactical_report_v2()
+  │   ├─ compute_tactical_analysis(raw) → 四层因果模型
+  │   ├─ LLM 战术叙事 (五段式，~3700 tokens)
+  │   ├─ generate_all_tactical_charts() → 雷达/控球/射门/PPDA
+  │   ├─ generate_event_timeline_html() + save_timeline_png()
+  │   ├─ generate_lineup_html() + save_lineup_png()
+  │   ├─ 保存 JSON → output/{id}_.../tactical_analysis.json
+  │   ├─ 保存 Excel → output/{id}_.../tactical_analysis.xlsx
+  │   └─ 组装 HTML → output/{id}_.../tactical_report.html
+  │
+  └─ 5. 【管道 C】generate_player_cards_v6()  (需 --cards-only)
+      └─ Playwright 渲染 PNG 卡片 → output/{id}_.../player_cards/
+```
+
+**输出目录总览**：
+
+```
+output/{match_id}_{HOME}_vs_{AWAY}/
+├── tactical_report.html          # ★ 主力产品：战术分析报告 V2
+├── tactical_analysis.json/xlsx   # 战术数据
+├── images/                       # 战术图表 + 阵容 + 时间轴
+├── compare/                      # 球员对比图
+└── player_cards/                 # 球员贡献卡片
+
+data/computed/
+├── {match_id}_players_v6.json    # 球员贡献原始数据
+└── {match_id}_players_v6.xlsx    # 球员贡献 Excel
+```
+
+---
+
+## 5. 旧版管线：核心架构与数据流（信号驱动）
 
 ```
 run.py
@@ -143,15 +223,15 @@ run.py
 
 ---
 
-## 5. 关键适配：SportMonks type_id 体系
+## 6. 关键适配：SportMonks type_id 体系
 
 ⚠️ **SportMonks 用整数 `type_id` 编码所有统计和事件，不使用字段名。** 映射表集中在 `src/collector/api_client.py`。
 
-### 5.1 球队统计映射 (`FIXTURE_STAT_MAP`)
+### 6.1 球队统计映射 (`FIXTURE_STAT_MAP`)
 
 40 项球队级指标，完整列表见 `design/SportMonks统计指标全集.md`。
 
-### 5.2 球员统计映射 (`PLAYER_STAT_MAP`)
+### 6.2 球员统计映射 (`PLAYER_STAT_MAP`)
 
 已从 25 项扩展到 **49 项**，含高阶数据：
 
@@ -189,7 +269,7 @@ PLAYER_STAT_MAP: dict[int, str] = {
 }
 ```
 
-### 5.3 事件类型映射 (`_parse_events`)
+### 6.3 事件类型映射 (`_parse_events`)
 
 基于 fixture 19683241 (PSG vs Arsenal 含加时+点球大战) 实测验证：
 
@@ -212,7 +292,7 @@ PLAYER_STAT_MAP: dict[int, str] = {
 ⚠️ **进球事件**：`related_player_name` = 助攻者 → `assist_name`。
 ⚠️ **MatchEvent 含 `period_id`**：区分常规时间(1-2)、加时赛(3-4)、点球大战(5)。
 
-### 5.4 趋势数据 (`trends`) 结构
+### 6.4 趋势数据 (`trends`) 结构
 
 API 返回 ~1500-1700 条逐分钟累积记录。解析后结构：
 ```python
@@ -222,7 +302,7 @@ trends: dict[int, dict[int, list[TrendPoint]]]
 
 常出现的 type_id：80(传球), 43(进攻), 106(赢得对抗), 45(控球), 98(传中), 42(射门), 44(威胁进攻), 27271(球权回收) 等。
 
-### 5.5 认证方式
+### 7.5 认证方式
 
 ```python
 # SportMonks: api_token 作为 query param
@@ -231,11 +311,11 @@ requests.get(url, params={"api_token": token, "include": "..."})
 
 ---
 
-## 6. 信号检测系统
+## 7. 信号检测系统
 
 36 个检测器分 7 大类，每个返回 `SignalResult(name, category, strength, evidence, narrative_hint)`。
 
-### 6.1 A. 比分背离 (Score Deviation) — 6 个
+### 7.1 A. 比分背离 (Score Deviation) — 6 个
 
 | 检测器 | 触发条件 |
 |--------|---------|
@@ -246,7 +326,7 @@ requests.get(url, params={"api_token": token, "include": "..."})
 | `own_goal_impact` | 乌龙球直接决定了比赛结果 |
 | `late_winner` | 75 分钟后进球改变了胜者 |
 
-### 6.2 B. 效率撕裂 (Efficiency Tear) — 6 个
+### 7.2 B. 效率撕裂 (Efficiency Tear) — 6 个
 
 | 检测器 | 触发条件 |
 |--------|---------|
@@ -257,7 +337,7 @@ requests.get(url, params={"api_token": token, "include": "..."})
 | `corner_efficiency` | 角球直接/间接进球 ≥ 2 个 |
 | `big_chance_conversion` | 绝佳机会错失率 > 60% |
 
-### 6.3 C. 个人英雄/罪人 (Individual) — 6 个
+### 7.3 C. 个人英雄/罪人 (Individual) — 6 个
 
 | 检测器 | 触发条件 |
 |--------|---------|
@@ -268,7 +348,7 @@ requests.get(url, params={"api_token": token, "include": "..."})
 | `fatal_error` | `error_lead_to_goal` > 0 |
 | `rating_paradox` | 高分但基础数据差 |
 
-### 6.4 D. 结构性问题 (Structural) — 6 个
+### 7.4 D. 结构性问题 (Structural) — 6 个
 
 | 检测器 | 触发条件 |
 |--------|---------|
@@ -279,7 +359,7 @@ requests.get(url, params={"api_token": token, "include": "..."})
 | `sub_timing_impact` | 早期换人 (< 30') 或拖延时间换人 (≥ 85') |
 | `formation_mismatch` | 禁区外射门 > 禁区内 ×1.5 |
 
-### 6.5 E. 叙事钩子 (Narrative) — 6 个
+### 7.5 E. 叙事钩子 (Narrative) — 6 个
 
 | 检测器 | 触发条件 |
 |--------|---------|
@@ -290,7 +370,7 @@ requests.get(url, params={"api_token": token, "include": "..."})
 | `draw_drama` | 平局但 xG 差大 |
 | `rare_event` | 3+ 中框 / 2+ 红牌 |
 
-### 6.6 F. 淘汰赛专项 (Knockout) — 8 个
+### 7.6 F. 淘汰赛专项 (Knockout) — 8 个
 
 | 检测器 | 触发条件 |
 |--------|---------|
@@ -303,7 +383,7 @@ requests.get(url, params={"api_token": token, "include": "..."})
 | `period_goal_cluster` | 单时段 3+ 进球 |
 | `dominant_et` | 加时赛射门 ≥ 3 倍对手 |
 
-### 6.7 G. 趋势驱动 (Trends) — 6 个
+### 7.7 G. 趋势驱动 (Trends) — 6 个
 
 | 检测器 | 触发条件 |
 |--------|---------|
@@ -320,7 +400,7 @@ requests.get(url, params={"api_token": token, "include": "..."})
 
 ---
 
-## 7. 自创指标速查（辅助参考）
+## 8. 自创指标速查（辅助参考）
 
 | 指标 | 公式（核心） | 范围 | 数据源 |
 |---|---|---|---|
@@ -333,7 +413,7 @@ requests.get(url, params={"api_token": token, "include": "..."})
 
 ---
 
-## 8. 降级策略
+## 9. 降级策略
 
 | 场景 | 策略 |
 |---|---|
@@ -349,15 +429,15 @@ requests.get(url, params={"api_token": token, "include": "..."})
 
 ---
 
-## 9. 调试建议
+## 10. 调试建议
 
-### 9.1 先 dry-run（含信号检测）
+### 10.1 先 dry-run（含信号检测）
 ```bash
 python run.py --match 19683241 --dry-run
 ```
 只拉数据 + 算指标 + 趋势分析 + 信号检测，不调 LLM。检查 `data/raw/{id}/raw_data.json` 和 `data/computed/{id}.json`。
 
-### 9.2 查看检测到的信号
+### 10.2 查看检测到的信号
 ```bash
 python -c "
 import json; d=json.load(open('data/computed/19683241.json','r',encoding='utf-8'))
@@ -366,7 +446,7 @@ for s in d.get('signals', []):
 "
 ```
 
-### 9.3 查看趋势数据中的可用 type_id
+### 10.3 查看趋势数据中的可用 type_id
 ```python
 import json
 raw = json.load(open("data/raw/19683241/raw_data.json", "r", encoding="utf-8"))
@@ -375,7 +455,7 @@ for pid, type_dict in trends.items():
     print(f"Participant {pid}: types = {list(type_dict.keys())[:20]} ...")
 ```
 
-### 9.4 单模块重跑
+### 10.4 单模块重跑
 ```python
 from src.collector.api_client import fetch_all
 import yaml
@@ -398,7 +478,7 @@ for s in get_top_signals(all_sigs, 6):
     print(f"  {s.strength:.2f} [{s.category}] {s.name}")
 ```
 
-### 9.5 验证 xG / Recoveries 采集
+### 10.5 验证 xG / Recoveries 采集
 ```python
 import json
 raw = json.load(open("data/raw/19683241/raw_data.json", "r", encoding="utf-8"))
@@ -408,14 +488,14 @@ home_rec = sum(p.get("ball_recoveries", 0) or 0 for p in raw["home_players"])
 print(f"xG: H={home_xg:.4f} A={away_xg:.4f}  Recoveries: H={home_rec}")
 ```
 
-### 9.6 检查 LLM 是否可用
+### 10.6 检查 LLM 是否可用
 ```bash
 python -c "from src.generator.llm_client import LLMClient; import yaml; c=LLMClient(yaml.safe_load(open('config.yaml'))['llm']); print(c.generate('你是翻译','将hello翻译成中文'))"
 ```
 
 ---
 
-## 10. 已知问题与待办
+## 11. 已知问题与待办
 
 - [x] ~~API-Football 抢断/球权回收缺失~~ → SportMonks 已解决
 - [x] ~~球场Logo未显示~~ → SportMonks 提供 `image_path`
@@ -434,29 +514,30 @@ python -c "from src.generator.llm_client import LLMClient; import yaml; c=LLMCli
 
 ---
 
-## 11. 多环境迁移清单
+## 12. 多环境迁移清单
 
 1. `git clone` 本项目
 2. `pip install requests pyyaml matplotlib mplsoccer numpy scipy openai markdown jinja2 openpyxl playwright`
 3. `playwright install chromium`
 4. 设置环境变量 `SPORTMONKS_API_TOKEN` 和 `DEEPSEEK_API_KEY`（或直接写入 config.yaml）
 5. `python -c "from src.collector.api_client import SportMonksClient; print('OK')"` → 验证导入
-6. `python run.py --match 19683241 --dry-run` → 验证全管线（采集+指标+趋势+信号）
-7. `python run.py --match 19683241` → 完整生成（含 LLM 叙事 + 图表）
-8. `python run_player_v6.py 19683241` → 生成球员贡献 Excel + JSON
-9. `python generate_cards_v6.py 19683241` → 生成全体球员 PNG 卡片
+6. `python generate_match_report.py 19683241 --no-llm` → ★ 验证统一管线（战术V2+球员V6，不含LLM）
+7. `python generate_match_report.py 19683241` → ★ 完整生成（含 LLM 叙事 + 图表）
+8. `python run.py --match 19683241 --dry-run` → 验证旧版管线（采集+指标+趋势+信号）
+9. `python run_player_v6.py 19683241` → 独立运行球员贡献 Excel + JSON
+10. `python generate_cards_v6.py 19683241` → 生成全体球员 PNG 卡片
 
 ---
 
-## 12. 球员贡献检测器 v6
+## 13. 球员贡献检测器 v6
 
-### 12.1 概述
+### 13.1 概述
 
 v6 采用**两层叙事模型**，从 66 项球员级指标出发，输出七维贡献向量 + LLM 球员分析。
 
 **设计文档**：[`design/球员贡献检测器方案-v6.md`](design/球员贡献检测器方案-v6.md)
 
-### 12.2 快速启动
+### 13.2 快速启动
 
 ```bash
 # 完整管线（Excel + JSON）
@@ -469,7 +550,7 @@ python generate_cards_v6.py 19683241 --key-only # 仅关键球员
 python generate_cards_v6.py 19683241 --player "Declan Rice"  # 指定球员
 ```
 
-### 12.3 Layer 1：七维贡献模型
+### 13.3 Layer 1：七维贡献模型
 
 | 维度 | 简称 | 副标题 | 指标数 | 核心正指标 |
 |------|------|--------|:---:|------|
@@ -483,7 +564,7 @@ python generate_cards_v6.py 19683241 --player "Declan Rice"  # 指定球员
 
 **算法**：`zscore_composite_v6()` — 每个指标组内 Z-score × 权重 → 求和 → `tanh(x/6.0)*6.0` 软封顶。
 
-### 12.4 Layer 2：LLM 球员分析
+### 13.4 Layer 2：LLM 球员分析
 
 **分析范围**：所有出场 ≥15 分钟的球员（含门将），分两类：
 
@@ -498,7 +579,7 @@ python generate_cards_v6.py 19683241 --player "Declan Rice"  # 指定球员
 - 分批调用：每批 ≤15 球员，动态 max_tokens
 - 回退：LLM 不可用时退回余弦相似度角色推断（14 种原型角色）
 
-### 12.5 输出物
+### 13.5 输出物
 
 | 格式 | 路径 | 内容 |
 |------|------|------|
@@ -506,7 +587,7 @@ python generate_cards_v6.py 19683241 --player "Declan Rice"  # 指定球员
 | **JSON** | `data/computed/{id}_players_v6.json` | 结构化数据，供卡片/下游消费 |
 | **PNG 卡片** | `output/{id}_.../cards/{player}.png` | 头像 + 姓名 + 事件 + LLM 评语 + 七维卡片网格 + 排名高亮 |
 
-### 12.6 调试
+### 13.6 调试
 
 ```bash
 # 查看 JSON 数据结构
@@ -524,7 +605,7 @@ for p in d:
 "
 ```
 
-### 12.7 核心文件
+### 13.7 核心文件
 
 | 文件 | 行数 | 职责 |
 |------|:---:|------|
