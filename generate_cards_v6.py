@@ -9,7 +9,7 @@ Usage:
   python generate_cards_v6.py 19683241 --key-only                # key players only
 """
 
-import argparse, json, os, sys, base64
+import argparse, json, os, sys, base64, re
 from typing import List, Optional
 
 import requests
@@ -156,6 +156,9 @@ def build_card_html(
     events: List[str],
     run_km: Optional[float] = None,
     carry_km: Optional[float] = None,
+    heatmap_b64: Optional[str] = None,
+    pass_chart_b64: Optional[str] = None,
+    dribble_chart_b64: Optional[str] = None,
 ) -> str:
     s = STYLE
 
@@ -240,9 +243,35 @@ def build_card_html(
     # Build physical data chips
     phys_chips = ""
     if run_km is not None:
-        phys_chips += f'<span class="chip" style="color:#3fb950;border-color:#3fb95044">跑动距离 {run_km:.1f} km</span>'
+        phys_chips += f'<span class="chip" style="color:#3fb950;border-color:#3fb95044">跑动 {run_km:.1f} km</span>'
     if carry_km is not None:
-        phys_chips += f'<span class="chip" style="color:#d2991d;border-color:#d2991d44">带球推进 {carry_km:.2f} km</span>'
+        phys_chips += f'<span class="chip" style="color:#d2991d;border-color:#d2991d44">推进 {carry_km:.2f} km</span>'
+
+    # Summary + Charts row
+    # Narrative text always shown above charts
+    sum_text_html = f'<div class="su-full">{sum_text}</div>'
+
+    # Build charts row (heatmap, pass_chart, dribble_chart)
+    chart_cards = []
+    if heatmap_b64:
+        chart_cards.append(('比赛热图', heatmap_b64))
+    if pass_chart_b64:
+        chart_cards.append(('传球分布', pass_chart_b64))
+    if dribble_chart_b64:
+        chart_cards.append(('带球推进', dribble_chart_b64))
+
+    if chart_cards:
+        n = len(chart_cards)
+        # Dynamically set chart card flex basis
+        charts_html = ""
+        for cap, b64 in chart_cards:
+            charts_html += f"""<div class="ch-card">
+    <img src="{b64}" alt="{cap}" />
+    <div class="ch-cap">{cap}</div>
+  </div>"""
+        charts_row = f'<div class="ch-row" style="grid-template-columns: repeat({n},1fr)">{charts_html}</div>'
+    else:
+        charts_row = ""
 
     html = f"""<!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><style>
@@ -250,7 +279,7 @@ def build_card_html(
 body{{width:780px;font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:{s["bg"]};color:{s["text"]};-webkit-font-smoothing:antialiased}}
 .card{{padding:28px 24px 20px}}
 /* Header */
-.hd{{display:flex;align-items:center;gap:16px;margin-bottom:18px}}
+.hd{{display:flex;align-items:center;gap:16px;margin-bottom:12px}}
 .pw{{width:78px;height:78px;border-radius:50%;overflow:hidden;flex-shrink:0;border:3px solid {s["primary"]};box-shadow:0 0 20px {s["primary"]}22}}
 .pw img{{width:100%;height:100%;object-fit:cover}}
 .hi{{flex:1;min-width:0}}
@@ -258,11 +287,16 @@ body{{width:780px;font-family:"Microsoft YaHei","PingFang SC",sans-serif;backgro
 .pm{{display:flex;gap:8px;margin-top:6px;font-size:14px;align-items:center}}
 .pm .chip{{background:{s["card_bg"]};padding:3px 10px;border-radius:4px;border:1px solid {s["border"]};color:{s["dim"]};font-weight:600}}
 .key-badge{{background:{s["tag_bg"]};color:#fff;font-size:12px;padding:3px 9px;border-radius:3px;font-weight:700;margin-left:4px}}
-/* Summary */
-.su{{font-size:14px;color:{s["dim"]};margin-top:7px;line-height:1.55;font-weight:700;max-width:95%}}
 /* Events */
 .ev-row{{display:flex;gap:7px;margin-top:6px}}
 .evt{{background:{s["primary"]}18;color:{s["accent"]};font-size:12px;padding:3px 9px;border-radius:3px;border:1px solid {s["primary"]}33;font-weight:600}}
+/* Summary + Charts */
+ .su-full{{font-size:14px;color:{s["dim"]};line-height:1.55;font-weight:700;margin-bottom:10px}}
+ /* Charts row — grid of 1–3 chart cards */
+ .ch-row{{display:grid;gap:10px;margin-bottom:4px}}
+ .ch-card{{border-radius:6px;overflow:hidden;border:1px solid {s["divider"]};background:{s["card_bg"]}}}
+ .ch-card img{{width:100%;height:170px;object-fit:contain;display:block;background:{s["bg"]}}}
+ .ch-cap{{text-align:center;font-size:10px;color:{s["dim"]};padding:4px 0 3px;font-weight:600}}
 /* Divider */
 .dv{{height:1px;background:linear-gradient(90deg,{s["primary"]}44,{s["accent"]}22,transparent);margin:16px 0;border:none}}
 /* Grid */
@@ -303,9 +337,11 @@ tr.hl td.mr,tr.hl td.mo{{color:{s["highlight_text"]};font-weight:700}}
       {phys_chips}
     </div>
     {ev_html}
-    <div class="su">{sum_text}</div>
   </div>
 </div>
+
+{sum_text_html}
+{charts_row}
 
 <hr class="dv">
 
@@ -325,6 +361,62 @@ tr.hl td.mr,tr.hl td.mo{{color:{s["highlight_text"]};font-weight:700}}
 # Data builder from JSON
 # ═══════════════════════════════════════════════════════════════
 
+def _resolve_player_dir(match_id: int, player_name: str) -> Optional[str]:
+    """Resolve the player data directory, handling Unicode acent mismatch.
+
+    e.g. JSON has "Érik Lira" but file system has "Erik_Lira".
+    Tries exact match first, then falls back to accent-insensitive lookup.
+    """
+    base_dir = os.path.join("data", str(match_id))
+
+    # 1) Exact match
+    exact = os.path.join(base_dir, player_name)
+    if os.path.isdir(exact):
+        return exact
+
+    # 2) Normalize: accents + underscores → ASCII space
+    import unicodedata
+    def normalize_name(s):
+        # Strip accents: É → E, á → a etc.
+        n = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii')
+        # Underscores / hyphens → spaces, collapse whitespace, strip
+        n = re.sub(r'[\s_\-]+', ' ', n).strip()
+        return n
+
+    name_normalized = normalize_name(player_name)
+    if name_normalized != player_name:
+        alt = os.path.join(base_dir, name_normalized)
+        if os.path.isdir(alt):
+            return alt
+
+    # 3) Iterate dirs and try normalized match
+    if not os.path.isdir(base_dir):
+        return None
+    try:
+        for d in os.listdir(base_dir):
+            if normalize_name(d) == name_normalized:
+                return os.path.join(base_dir, d)
+    except OSError:
+        pass
+
+    # 4) Try word-order-insensitive match: split into words and compare as sets
+    #    e.g. JSON "Min-jae Kim" ↔ dir "Kim Min-jae"
+    def word_set(s):
+        # Normalize, then split on spaces AND hyphens into word tokens
+        parts = re.split(r'[\s\-]+', normalize_name(s))
+        return frozenset(p for p in parts if p)
+    json_words = word_set(player_name)
+    if len(json_words) >= 2:
+        try:
+            for d in os.listdir(base_dir):
+                if word_set(d) == json_words:
+                    return os.path.join(base_dir, d)
+        except OSError:
+            pass
+
+    return None
+
+
 def _load_physical_data(match_id: int, player_name: str) -> tuple:
     """Try loading run/carry data. Returns (run_km, carry_km) or (None, None).
 
@@ -333,9 +425,12 @@ def _load_physical_data(match_id: int, player_name: str) -> tuple:
     - data/{match_id}/{player_name}/ 目录不存在
     - run_data.json 或 carry_data.json 不存在/格式异常/缺失字段
     """
-    data_dir = os.path.join("data", str(match_id), player_name)
+    data_dir = _resolve_player_dir(match_id, player_name)
     run_km = None
     carry_km = None
+
+    if data_dir is None:
+        return run_km, carry_km
 
     # ── 跑动数据 ──
     run_path = os.path.join(data_dir, "run_data.json")
@@ -363,6 +458,22 @@ def _load_physical_data(match_id: int, player_name: str) -> tuple:
             pass
 
     return run_km, carry_km
+
+
+def _load_base64_image(match_id: int, player_name: str, filename: str) -> Optional[str]:
+    """Load an image as base64 data URI. Returns None if missing."""
+    data_dir = _resolve_player_dir(match_id, player_name)
+    if data_dir is None:
+        return None
+    path = os.path.join(data_dir, filename)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        return f"data:image/png;base64,{b64}"
+    except Exception:
+        return None
 
 
 def build_cards_from_json(json_path: str, raw_path: str, match_id: int) -> List[dict]:
@@ -474,6 +585,11 @@ def build_cards_from_json(json_path: str, raw_path: str, match_id: int) -> List[
         # Load physical data (run + carry) if available
         run_km, carry_km = _load_physical_data(match_id, name)
 
+        # Load chart images if available
+        heatmap_b64 = _load_base64_image(match_id, name, "heatmap.png")
+        pass_chart_b64 = _load_base64_image(match_id, name, "pass_chart.png")
+        dribble_chart_b64 = _load_base64_image(match_id, name, "dribble_chart.png")
+
         results.append({
             "name": name, "jersey": str(pi.get("number", "")),
             "pos": pi["pos"], "team_name": team_name,
@@ -482,6 +598,9 @@ def build_cards_from_json(json_path: str, raw_path: str, match_id: int) -> List[
             "llm_summary": pi.get("llm_summary", ""),
             "is_key": is_key, "dim_cards": dim_cards, "events": events,
             "run_km": run_km, "carry_km": carry_km,
+            "heatmap_b64": heatmap_b64,
+            "pass_chart_b64": pass_chart_b64,
+            "dribble_chart_b64": dribble_chart_b64,
         })
 
     return results
@@ -505,6 +624,9 @@ def render_card_png(card_data: dict, output_path: str):
         is_key=card_data["is_key"], dim_cards=card_data["dim_cards"],
         events=card_data["events"],
         run_km=card_data.get("run_km"), carry_km=card_data.get("carry_km"),
+        heatmap_b64=card_data.get("heatmap_b64"),
+        pass_chart_b64=card_data.get("pass_chart_b64"),
+        dribble_chart_b64=card_data.get("dribble_chart_b64"),
     )
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
@@ -519,6 +641,97 @@ def render_card_png(card_data: dict, output_path: str):
         browser.close()
 
     print(f"  -> {output_path}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# Wrapper functions for generate_match_report.py
+# ═══════════════════════════════════════════════════════════════
+
+def _get_json_raw_paths(players: list, match_id: int = None):
+    """Resolve json_path and raw_path from match_id, or infer from players."""
+    if match_id is None:
+        match_id = _infer_match_id(players)
+    json_path = f"data/computed/{match_id}_players_v6.json"
+    raw_path = f"data/raw/{match_id}/raw_data.json"
+    if not os.path.exists(json_path):
+        print(f"[WARN] JSON not found: {json_path}, skipping")
+        return None, None
+    if not os.path.exists(raw_path):
+        print(f"[WARN] Raw data not found: {raw_path}, skipping")
+        return None, None
+    return json_path, raw_path
+
+
+def generate_all_cards(players: list, cards_dir: str, match_id: int = None) -> int:
+    """Generate cards for all players (invoked by generate_match_report.py)."""
+    json_path, raw_path = _get_json_raw_paths(players, match_id)
+    if not json_path:
+        return 0
+    cards = build_cards_from_json(json_path, raw_path, match_id or _infer_match_id(players))
+    cards = [c for c in cards if c["name"] in {p["name"] for p in players}]
+    return _render_cards(cards, cards_dir)
+
+
+def generate_key_cards(players: list, cards_dir: str, match_id: int = None) -> int:
+    """Generate cards for key players only."""
+    json_path, raw_path = _get_json_raw_paths(players, match_id)
+    if not json_path:
+        return 0
+    cards = build_cards_from_json(json_path, raw_path, match_id or _infer_match_id(players))
+    names = {p["name"] for p in players}
+    cards = [c for c in cards if c["name"] in names and c["is_key"]]
+    return _render_cards(cards, cards_dir)
+
+
+def generate_player_card(players: list, name_filter: str, cards_dir: str, match_id: int = None) -> int:
+    """Generate card for a single player."""
+    json_path, raw_path = _get_json_raw_paths(players, match_id)
+    if not json_path:
+        return 0
+    cards = build_cards_from_json(json_path, raw_path, match_id or _infer_match_id(players))
+    cards = [c for c in cards if c["name"] == name_filter]
+    return _render_cards(cards, cards_dir)
+
+
+def _infer_match_id(players: list) -> int:
+    """Attempt to infer match_id from the players data."""
+    # Players loaded from {match_id}_players_v6.json - try to find from file
+    for p in players:
+        if "player_id" in p:
+            # Search existing raw data dirs for this player
+            pass
+    # Fallback: try to find from cached data
+    import glob
+    raw_dirs = glob.glob("data/raw/[0-9]*")
+    for d in raw_dirs:
+        mid = int(os.path.basename(d))
+        raw_path = os.path.join(d, "raw_data.json")
+        if os.path.exists(raw_path):
+            try:
+                raw = json.load(open(raw_path, "r", encoding="utf-8"))
+                all_names = []
+                for rp in raw.get("home_players", []) + raw.get("away_players", []):
+                    all_names.append(rp["name"])
+                if any(p["name"] in all_names for p in players[:3]):
+                    return mid
+            except Exception:
+                continue
+    raise ValueError("Cannot infer match_id from players data")
+
+
+def _render_cards(cards: list, cards_dir: str) -> int:
+    """Render a list of card data dicts to PNG files."""
+    os.makedirs(cards_dir, exist_ok=True)
+    count = 0
+    for cd in cards:
+        filename = cd["name"].replace(" ", "_").replace("'", "").replace("(", "").replace(")", "")
+        out_path = os.path.join(cards_dir, f"{filename}.png")
+        try:
+            render_card_png(cd, out_path)
+            count += 1
+        except Exception as e:
+            print(f"  [WARN] {cd['name']}: {e}")
+    return count
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -1,0 +1,423 @@
+{
+  "home": {
+    "tactical_raw": {
+      "long_ball_ratio": 0.092,
+      "cross_ratio": 0.023,
+      "final_third_pass_ratio": 0.108,
+      "forward_ratio": 0.158,
+      "passes_per_shot": 32.5,
+      "ppda": 10.4,
+      "high_press_ratio": 0.036,
+      "clearance_ratio": 1.7,
+      "possession_pct": 61.0,
+      "pass_volume": 520
+    },
+    "match_relative": {
+      "long_ball_gap": 1.5,
+      "cross_gap": 1.04,
+      "final_third_pass_gap": 1.08,
+      "forward_gap": 1.22,
+      "passes_gap": 3.42,
+      "ppda_gap": 1.56,
+      "high_press_gap": 1.33,
+      "clearance_gap": 1.0,
+      "possession_gap": 1.56,
+      "pass_gap": 1.56
+    },
+    "execution": {
+      "attack": {
+        "dimensions": [
+          {
+            "dim": "possession",
+            "input_gap": 3.42,
+            "roi_value": 2.48,
+            "score": 1.0
+          },
+          {
+            "dim": "long_ball",
+            "input_gap": 1.5,
+            "roi_value": 0.027,
+            "score": 1.0
+          },
+          {
+            "dim": "penetration",
+            "input_gap": 1.08,
+            "roi_value": 56.25,
+            "score": 0.72
+          },
+          {
+            "dim": "directness",
+            "input_gap": 1.22,
+            "roi_value": 1.551,
+            "score": 0.41
+          }
+        ],
+        "total_score": 3.1,
+        "verdict": "effective"
+      },
+      "defense": {
+        "dimensions": [
+          {
+            "dim": "press_intensity",
+            "input_gap": 1.56,
+            "roi_value": 81.0,
+            "score": 0.31
+          },
+          {
+            "dim": "high_press",
+            "input_gap": 1.33,
+            "roi_value": 1.333,
+            "score": 0.35
+          },
+          {
+            "dim": "interception",
+            "input_gap": 1.56,
+            "roi_value": 2.395,
+            "score": 0.42
+          }
+        ],
+        "total_score": 1.1,
+        "verdict": "effective"
+      }
+    }
+  },
+  "away": {
+    "tactical_raw": {
+      "long_ball_ratio": 0.138,
+      "cross_ratio": 0.024,
+      "final_third_pass_ratio": 0.117,
+      "forward_ratio": 0.193,
+      "passes_per_shot": 111.3,
+      "ppda": 16.2,
+      "high_press_ratio": 0.027,
+      "clearance_ratio": 0.0,
+      "possession_pct": 39.0,
+      "pass_volume": 334
+    },
+    "match_relative": {
+      "long_ball_gap": 1.5,
+      "cross_gap": 1.04,
+      "final_third_pass_gap": 1.08,
+      "forward_gap": 1.22,
+      "passes_gap": 3.42,
+      "ppda_gap": 1.56,
+      "high_press_gap": 1.33,
+      "clearance_gap": 1.0,
+      "possession_gap": 1.56,
+      "pass_gap": 1.56
+    },
+    "execution": {
+      "attack": {
+        "dimensions": [
+          {
+            "dim": "possession",
+            "input_gap": 3.42,
+            "roi_value": 0.2,
+            "score": -2.0
+          },
+          {
+            "dim": "long_ball",
+            "input_gap": 1.5,
+            "roi_value": 0.001,
+            "score": -0.8
+          },
+          {
+            "dim": "penetration",
+            "input_gap": 1.08,
+            "roi_value": 33.333,
+            "score": -0.72
+          },
+          {
+            "dim": "directness",
+            "input_gap": 1.22,
+            "roi_value": 0.0,
+            "score": -0.65
+          }
+        ],
+        "total_score": -4.2,
+        "verdict": "fail"
+      },
+      "defense": {
+        "dimensions": [
+          {
+            "dim": "press_intensity",
+            "input_gap": 1.56,
+            "roi_value": 90.0,
+            "score": -1.04
+          },
+          {
+            "dim": "high_press",
+            "input_gap": 1.33,
+            "roi_value": 0.214,
+            "score": -0.71
+          },
+          {
+            "dim": "interception",
+            "input_gap": 1.56,
+            "roi_value": 1.346,
+            "score": -0.52
+          }
+        ],
+        "total_score": -2.3,
+        "verdict": "fail"
+      }
+    }
+  },
+  "match_flow": {
+    "rhythm": {
+      "swings": 0,
+      "verdict": "one_sided"
+    },
+    "ppda": {
+      "home": {
+        "full_match": 10.4,
+        "note": "全场均值；事件数据不支持逐窗口细分"
+      },
+      "away": {
+        "full_match": 16.2,
+        "note": "全场均值；事件数据不支持逐窗口细分"
+      }
+    },
+    "shot_segments": {
+      "home": [
+        4,
+        1,
+        3,
+        9,
+        1,
+        0
+      ],
+      "away": [
+        0,
+        0,
+        1,
+        2,
+        0,
+        0
+      ],
+      "home_on": [
+        2,
+        0,
+        0,
+        1,
+        1,
+        0
+      ],
+      "away_on": [
+        0,
+        0,
+        0,
+        2,
+        0,
+        0
+      ],
+      "home_off": [
+        2,
+        1,
+        3,
+        8,
+        0,
+        0
+      ],
+      "away_off": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "home_xg": [
+        0.287,
+        0.072,
+        0.215,
+        0.645,
+        0.072,
+        0.0
+      ],
+      "away_xg": [
+        0.0,
+        0.0,
+        0.022,
+        0.044,
+        0.0,
+        0.0
+      ],
+      "home_xgot": [
+        0.678,
+        0.0,
+        0.0,
+        0.339,
+        0.339,
+        0.0
+      ],
+      "away_xgot": [
+        0.0,
+        0.0,
+        0.0,
+        0.117,
+        0.0,
+        0.0
+      ],
+      "home_xg_total": 1.29,
+      "away_xg_total": 0.067,
+      "home_xgot_total": 1.356,
+      "away_xgot_total": 0.176
+    },
+    "possession_trend": {
+      "home": [
+        61.0,
+        61.0,
+        61.0,
+        61.0,
+        61.0,
+        61.0
+      ],
+      "away": [
+        39.0,
+        39.0,
+        39.0,
+        39.0,
+        39.0,
+        39.0
+      ]
+    },
+    "key_event_impacts": [
+      {
+        "minute": 9,
+        "event_type": "进球",
+        "team": "home",
+        "team_name": "Mexico",
+        "context": "Mexico Julián Quiñones 第 9 分钟进球"
+      },
+      {
+        "minute": 49,
+        "event_type": "红牌",
+        "team": "away",
+        "context": "Yaya Sithole 第 49 分钟被罚下"
+      },
+      {
+        "minute": 67,
+        "event_type": "进球",
+        "team": "home",
+        "team_name": "Mexico",
+        "context": "Mexico Raúl Jiménez 第 67 分钟进球"
+      },
+      {
+        "minute": 84,
+        "event_type": "红牌",
+        "team": "away",
+        "context": "Themba Zwane 第 84 分钟被罚下"
+      },
+      {
+        "minute": 90,
+        "event_type": "红牌",
+        "team": "home",
+        "context": "César Montes  第 90 分钟被罚下"
+      }
+    ],
+    "event_impact_windows": [
+      {
+        "minute": 9,
+        "event_type": "进球",
+        "team": "home",
+        "player": "Julián Quiñones",
+        "window_before": "0-9'",
+        "window_after": "9-19'",
+        "possession": {
+          "goal_team": {
+            "before": 50.0,
+            "after": 50.0
+          },
+          "opponent": {
+            "before": 50.0,
+            "after": 50.0
+          }
+        },
+        "shots": {
+          "goal_team": {
+            "before": 2,
+            "after": 2
+          },
+          "opponent": {
+            "before": 0,
+            "after": 0
+          }
+        },
+        "xg_approx": {
+          "goal_team": {
+            "before": 0.161,
+            "after": 0.161
+          },
+          "opponent": {
+            "before": 0.0,
+            "after": 0.0
+          }
+        }
+      },
+      {
+        "minute": 67,
+        "event_type": "进球",
+        "team": "home",
+        "player": "Raúl Jiménez",
+        "window_before": "57-67'",
+        "window_after": "67-77'",
+        "possession": {
+          "goal_team": {
+            "before": 50.0,
+            "after": 50.0
+          },
+          "opponent": {
+            "before": 50.0,
+            "after": 50.0
+          }
+        },
+        "shots": {
+          "goal_team": {
+            "before": 3,
+            "after": 1
+          },
+          "opponent": {
+            "before": 0,
+            "after": 0
+          }
+        },
+        "xg_approx": {
+          "goal_team": {
+            "before": 0.242,
+            "after": 0.081
+          },
+          "opponent": {
+            "before": 0.0,
+            "after": 0.0
+          }
+        }
+      }
+    ]
+  },
+  "coaching": {
+    "style_clash": "direct_duel",
+    "tactical_mismatch": {
+      "home": 0,
+      "away": -2
+    },
+    "mismatch_pairs": [
+      {
+        "off_dim": "long_ball",
+        "def_dim": "press_intensity",
+        "off_team": "away",
+        "result": -2
+      }
+    ],
+    "sub_effectiveness": {
+      "home": {
+        "score_change": 0,
+        "verdict": "neutral"
+      },
+      "away": {
+        "score_change": 0,
+        "verdict": "neutral"
+      }
+    }
+  }
+}

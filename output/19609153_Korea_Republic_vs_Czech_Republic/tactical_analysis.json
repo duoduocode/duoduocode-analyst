@@ -1,0 +1,474 @@
+{
+  "home": {
+    "tactical_raw": {
+      "long_ball_ratio": 0.111,
+      "cross_ratio": 0.022,
+      "final_third_pass_ratio": 0.118,
+      "forward_ratio": 0.179,
+      "passes_per_shot": 36.1,
+      "ppda": 12.0,
+      "high_press_ratio": 0.022,
+      "clearance_ratio": 0.6,
+      "possession_pct": 62.0,
+      "pass_volume": 541
+    },
+    "match_relative": {
+      "long_ball_gap": 1.89,
+      "cross_gap": 2.09,
+      "final_third_pass_gap": 1.33,
+      "forward_gap": 1.53,
+      "passes_gap": 1.28,
+      "ppda_gap": 1.41,
+      "high_press_gap": 1.29,
+      "clearance_gap": 6.0,
+      "possession_gap": 1.63,
+      "pass_gap": 1.67
+    },
+    "execution": {
+      "attack": {
+        "dimensions": [
+          {
+            "dim": "possession",
+            "input_gap": 1.28,
+            "roi_value": 3.118,
+            "score": 0.85
+          },
+          {
+            "dim": "long_ball",
+            "input_gap": 1.89,
+            "roi_value": 0.028,
+            "score": 1.26
+          },
+          {
+            "dim": "crossing",
+            "input_gap": 2.09,
+            "roi_value": 216.667,
+            "score": 1.39
+          },
+          {
+            "dim": "penetration",
+            "input_gap": 1.33,
+            "roi_value": 66.667,
+            "score": 0.89
+          },
+          {
+            "dim": "directness",
+            "input_gap": 1.53,
+            "roi_value": 1.186,
+            "score": 1.02
+          }
+        ],
+        "total_score": 5.4,
+        "verdict": "effective"
+      },
+      "defense": {
+        "dimensions": [
+          {
+            "dim": "press_intensity",
+            "input_gap": 1.41,
+            "roi_value": 71.0,
+            "score": 0.94
+          },
+          {
+            "dim": "high_press",
+            "input_gap": 1.29,
+            "roi_value": 2.143,
+            "score": 0.86
+          },
+          {
+            "dim": "deep_block",
+            "input_gap": 6.0,
+            "roi_value": 0.127,
+            "score": 0.8
+          },
+          {
+            "dim": "interception",
+            "input_gap": 1.41,
+            "roi_value": 3.395,
+            "score": 0.94
+          }
+        ],
+        "total_score": 3.5,
+        "verdict": "effective"
+      }
+    }
+  },
+  "away": {
+    "tactical_raw": {
+      "long_ball_ratio": 0.21,
+      "cross_ratio": 0.046,
+      "final_third_pass_ratio": 0.157,
+      "forward_ratio": 0.273,
+      "passes_per_shot": 46.3,
+      "ppda": 16.9,
+      "high_press_ratio": 0.017,
+      "clearance_ratio": 0.1,
+      "possession_pct": 38.0,
+      "pass_volume": 324
+    },
+    "match_relative": {
+      "long_ball_gap": 1.89,
+      "cross_gap": 2.09,
+      "final_third_pass_gap": 1.33,
+      "forward_gap": 1.53,
+      "passes_gap": 1.28,
+      "ppda_gap": 1.41,
+      "high_press_gap": 1.29,
+      "clearance_gap": 6.0,
+      "possession_gap": 1.63,
+      "pass_gap": 1.67
+    },
+    "execution": {
+      "attack": {
+        "dimensions": [
+          {
+            "dim": "possession",
+            "input_gap": 1.28,
+            "roi_value": 2.754,
+            "score": 0.85
+          },
+          {
+            "dim": "long_ball",
+            "input_gap": 1.89,
+            "roi_value": 0.013,
+            "score": -1.01
+          },
+          {
+            "dim": "crossing",
+            "input_gap": 2.09,
+            "roi_value": 100.0,
+            "score": 1.39
+          },
+          {
+            "dim": "penetration",
+            "input_gap": 1.33,
+            "roi_value": 71.429,
+            "score": 0.89
+          },
+          {
+            "dim": "directness",
+            "input_gap": 1.53,
+            "roi_value": 1.121,
+            "score": 1.02
+          }
+        ],
+        "total_score": 3.1,
+        "verdict": "effective"
+      },
+      "defense": {
+        "dimensions": [
+          {
+            "dim": "press_intensity",
+            "input_gap": 1.41,
+            "roi_value": 87.0,
+            "score": -0.94
+          },
+          {
+            "dim": "high_press",
+            "input_gap": 1.29,
+            "roi_value": 0.778,
+            "score": -0.69
+          },
+          {
+            "dim": "deep_block",
+            "input_gap": 6.0,
+            "roi_value": 0.112,
+            "score": 0.8
+          },
+          {
+            "dim": "interception",
+            "input_gap": 1.41,
+            "roi_value": 1.294,
+            "score": -0.47
+          }
+        ],
+        "total_score": -1.3,
+        "verdict": "fail"
+      }
+    }
+  },
+  "match_flow": {
+    "rhythm": {
+      "swings": 0,
+      "verdict": "one_sided"
+    },
+    "ppda": {
+      "home": {
+        "full_match": 12.0,
+        "note": "全场均值；事件数据不支持逐窗口细分"
+      },
+      "away": {
+        "full_match": 16.9,
+        "note": "全场均值；事件数据不支持逐窗口细分"
+      }
+    },
+    "shot_segments": {
+      "home": [
+        5,
+        0,
+        2,
+        5,
+        3,
+        2
+      ],
+      "away": [
+        0,
+        1,
+        1,
+        1,
+        0,
+        5
+      ],
+      "home_on": [
+        2,
+        0,
+        0,
+        3,
+        1,
+        1
+      ],
+      "away_on": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        3
+      ],
+      "home_off": [
+        3,
+        0,
+        2,
+        2,
+        2,
+        1
+      ],
+      "away_off": [
+        0,
+        1,
+        1,
+        0,
+        0,
+        2
+      ],
+      "home_xg": [
+        0.496,
+        0.0,
+        0.198,
+        0.496,
+        0.298,
+        0.198
+      ],
+      "away_xg": [
+        0.0,
+        0.112,
+        0.112,
+        0.112,
+        0.0,
+        0.558
+      ],
+      "home_xgot": [
+        0.759,
+        0.0,
+        0.0,
+        1.139,
+        0.38,
+        0.38
+      ],
+      "away_xgot": [
+        0.0,
+        0.0,
+        0.0,
+        0.414,
+        0.0,
+        1.241
+      ],
+      "home_xg_total": 1.687,
+      "away_xg_total": 0.892,
+      "home_xgot_total": 2.277,
+      "away_xgot_total": 1.655
+    },
+    "possession_trend": {
+      "home": [
+        62.0,
+        62.0,
+        62.0,
+        62.0,
+        62.0,
+        62.0
+      ],
+      "away": [
+        38.0,
+        38.0,
+        38.0,
+        38.0,
+        38.0,
+        38.0
+      ]
+    },
+    "key_event_impacts": [
+      {
+        "minute": 59,
+        "event_type": "进球",
+        "team": "away",
+        "team_name": "Czech Republic",
+        "context": "Czech Republic Ladislav Krejci 第 59 分钟进球"
+      },
+      {
+        "minute": 67,
+        "event_type": "进球",
+        "team": "home",
+        "team_name": "Korea Republic",
+        "context": "Korea Republic In-beom Hwang  第 67 分钟进球"
+      },
+      {
+        "minute": 80,
+        "event_type": "进球",
+        "team": "home",
+        "team_name": "Korea Republic",
+        "context": "Korea Republic Hyeon-gyu Oh 第 80 分钟进球"
+      }
+    ],
+    "event_impact_windows": [
+      {
+        "minute": 59,
+        "event_type": "进球",
+        "team": "away",
+        "player": "Ladislav Krejci",
+        "window_before": "49-59'",
+        "window_after": "59-69'",
+        "possession": {
+          "goal_team": {
+            "before": 50.0,
+            "after": 50.0
+          },
+          "opponent": {
+            "before": 50.0,
+            "after": 50.0
+          }
+        },
+        "shots": {
+          "goal_team": {
+            "before": 0,
+            "after": 1
+          },
+          "opponent": {
+            "before": 3,
+            "after": 3
+          }
+        },
+        "xg_approx": {
+          "goal_team": {
+            "before": 0.0,
+            "after": 0.127
+          },
+          "opponent": {
+            "before": 0.337,
+            "after": 0.337
+          }
+        }
+      },
+      {
+        "minute": 67,
+        "event_type": "进球",
+        "team": "home",
+        "player": "In-beom Hwang ",
+        "window_before": "57-67'",
+        "window_after": "67-77'",
+        "possession": {
+          "goal_team": {
+            "before": 50.0,
+            "after": 50.0
+          },
+          "opponent": {
+            "before": 50.0,
+            "after": 50.0
+          }
+        },
+        "shots": {
+          "goal_team": {
+            "before": 2,
+            "after": 1
+          },
+          "opponent": {
+            "before": 1,
+            "after": 0
+          }
+        },
+        "xg_approx": {
+          "goal_team": {
+            "before": 0.225,
+            "after": 0.112
+          },
+          "opponent": {
+            "before": 0.127,
+            "after": 0.0
+          }
+        }
+      },
+      {
+        "minute": 80,
+        "event_type": "进球",
+        "team": "home",
+        "player": "Hyeon-gyu Oh",
+        "window_before": "70-80'",
+        "window_after": "80-90'",
+        "possession": {
+          "goal_team": {
+            "before": 50.0,
+            "after": 50.0
+          },
+          "opponent": {
+            "before": 50.0,
+            "after": 50.0
+          }
+        },
+        "shots": {
+          "goal_team": {
+            "before": 0,
+            "after": 1
+          },
+          "opponent": {
+            "before": 0,
+            "after": 2
+          }
+        },
+        "xg_approx": {
+          "goal_team": {
+            "before": 0.0,
+            "after": 0.112
+          },
+          "opponent": {
+            "before": 0.0,
+            "after": 0.255
+          }
+        }
+      }
+    ]
+  },
+  "coaching": {
+    "style_clash": "direct_duel",
+    "tactical_mismatch": {
+      "home": 0,
+      "away": 2
+    },
+    "mismatch_pairs": [
+      {
+        "off_dim": "penetration",
+        "def_dim": "deep_block",
+        "off_team": "away",
+        "result": 2
+      }
+    ],
+    "sub_effectiveness": {
+      "home": {
+        "score_change": 0,
+        "verdict": "neutral"
+      },
+      "away": {
+        "score_change": 0,
+        "verdict": "neutral"
+      }
+    }
+  }
+}

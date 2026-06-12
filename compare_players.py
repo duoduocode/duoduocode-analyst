@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import sys
+import base64, re, unicodedata
 import yaml
 
 sys.path.insert(0, ".")
@@ -122,6 +123,64 @@ def _deserialize_raw(d: dict, match_id: int):
     )
 
 
+def _resolve_player_dir(match_id: int, player_name: str):
+    """Resolve player data directory, handling accent/underscore mismatches."""
+    base_dir = os.path.join("data", str(match_id))
+    exact = os.path.join(base_dir, player_name)
+    if os.path.isdir(exact):
+        return exact
+
+    def normalize_name(s):
+        n = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii')
+        return re.sub(r'[\s_\-]+', ' ', n).strip()
+
+    name_normalized = normalize_name(player_name)
+    if name_normalized != player_name:
+        alt = os.path.join(base_dir, name_normalized)
+        if os.path.isdir(alt):
+            return alt
+
+    if not os.path.isdir(base_dir):
+        return None
+    try:
+        for d in os.listdir(base_dir):
+            if normalize_name(d) == name_normalized:
+                return os.path.join(base_dir, d)
+    except OSError:
+        pass
+
+    # 4) Try word-order-insensitive match: split into words and compare as sets
+    def word_set(s):
+        parts = re.split(r'[\s\-]+', normalize_name(s))
+        return frozenset(p for p in parts if p)
+    json_words = word_set(player_name)
+    if len(json_words) >= 2:
+        try:
+            for d in os.listdir(base_dir):
+                if word_set(d) == json_words:
+                    return os.path.join(base_dir, d)
+        except OSError:
+            pass
+
+    return None
+
+
+def _load_base64_image(match_id: int, player_name: str, filename: str):
+    """Load an image as base64 data URI. Returns None if missing."""
+    data_dir = _resolve_player_dir(match_id, player_name)
+    if data_dir is None:
+        return None
+    path = os.path.join(data_dir, filename)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        return f"data:image/png;base64,{b64}"
+    except Exception:
+        return None
+
+
 def _load_physical_data(match_id: int, player_name: str) -> tuple:
     """Try loading run/carry data. Returns (run_km, carry_km) or (None, None).
 
@@ -130,7 +189,10 @@ def _load_physical_data(match_id: int, player_name: str) -> tuple:
     - data/{match_id}/{player_name}/ 目录不存在
     - run_data.json 或 carry_data.json 不存在/格式异常/缺失字段
     """
-    data_dir = os.path.join("data", str(match_id), player_name)
+    data_dir = _resolve_player_dir(match_id, player_name)
+    if data_dir is None:
+        return None, None
+    
     run_km = None
     carry_km = None
 
@@ -432,14 +494,17 @@ def main():
             pos_id = classify_position(p.get("position_id", 0) if p.get("position_id") else
                                        {"G": 24, "D": 5, "M": 14, "F": 21}.get(pos, 14))
             photo_url = p.get("photo_url", "")
+            number = p.get("number", 0) or 0
             pd = PlayerData(
                 player_id=pid, name=pname,
+                number=number,
                 position_id=pos_id, pos=pos,
                 team_name=home_name, stats=stats, photo_url=photo_url,
             )
         else:
             pd = PlayerData(
                 player_id=p.id, name=p.name,
+                number=getattr(p, "number", 0) or 0,
                 position_id=getattr(p, "position_id", 0), pos=getattr(p, "pos", "M"),
                 team_name=home_name, stats=getattr(p, "stats", {}),
                 photo_url=getattr(p, "photo_url", ""),
@@ -463,14 +528,17 @@ def main():
             pos_id = classify_position(p.get("position_id", 0) if p.get("position_id") else
                                        {"G": 24, "D": 5, "M": 14, "F": 21}.get(pos, 14))
             photo_url = p.get("photo_url", "")
+            number = p.get("number", 0) or 0
             pd = PlayerData(
                 player_id=pid, name=pname,
+                number=number,
                 position_id=pos_id, pos=pos,
                 team_name=away_name, stats=stats, photo_url=photo_url,
             )
         else:
             pd = PlayerData(
                 player_id=p.id, name=p.name,
+                number=getattr(p, "number", 0) or 0,
                 position_id=getattr(p, "position_id", 0), pos=getattr(p, "pos", "M"),
                 team_name=away_name, stats=getattr(p, "stats", {}),
                 photo_url=getattr(p, "photo_url", ""),
@@ -521,16 +589,26 @@ def main():
     if run_b is not None or carry_b is not None:
         print(f"  {args.player_b}: 跑动={run_b}, 推进={carry_b}")
 
+    # 加载图表图片
+    heatmap_a = _load_base64_image(args.match_id, args.player_a, "heatmap.png")
+    pass_a = _load_base64_image(args.match_id, args.player_a, "pass_chart.png")
+    dribble_a = _load_base64_image(args.match_id, args.player_a, "dribble_chart.png")
+    heatmap_b = _load_base64_image(args.match_id, args.player_b, "heatmap.png")
+    pass_b = _load_base64_image(args.match_id, args.player_b, "pass_chart.png")
+    dribble_b = _load_base64_image(args.match_id, args.player_b, "dribble_chart.png")
+
     # 构建对比数据
     player_a_data = build_player_comparison_data(
         a_team_list, detector_results, {args.player_a: key_a},
         args.player_a, a_team, all_players,
         run_km=run_a, carry_km=carry_a,
+        heatmap_b64=heatmap_a, pass_chart_b64=pass_a, dribble_chart_b64=dribble_a,
     )
     player_b_data = build_player_comparison_data(
         b_team_list, detector_results, {args.player_b: key_b},
         args.player_b, b_team, all_players,
         run_km=run_b, carry_km=carry_b,
+        heatmap_b64=heatmap_b, pass_chart_b64=pass_b, dribble_chart_b64=dribble_b,
     )
 
     if player_a_data is None:

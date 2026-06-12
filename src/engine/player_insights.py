@@ -70,6 +70,7 @@ class PlayerData:
     team_name: str      # home / away
     stats: dict         # type_id → value
     photo_url: str = ""
+    number: int = 0     # jersey number
 
     def sv(self, type_id: int, default=0.0):
         v = self.stats.get(type_id)

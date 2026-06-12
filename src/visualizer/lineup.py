@@ -152,7 +152,7 @@ def generate_lineup_html(raw: RawMatchData) -> str:
     ARC_W = 90     # penalty arc width
     ARC_H = 40     # penalty arc height
     PITCH_W = 480
-    PITCH_H = 640  # overall pitch height
+    PITCH_H = 780  # overall pitch height (increased for 5-row formations)
     MID_CIRCLE = 110  # center circle diameter
     css = f"""
 <style>
@@ -393,7 +393,7 @@ def generate_lineup_html(raw: RawMatchData) -> str:
 .pitch-half {{
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 5px;
     flex: 1;
     pointer-events: auto;
 }}
@@ -403,7 +403,7 @@ def generate_lineup_html(raw: RawMatchData) -> str:
 .pitch-row {{
     display: flex;
     justify-content: center;
-    gap: 16px;
+    gap: 12px;
     width: 100%;
 }}
 .pitch-row .player-card {{
@@ -411,12 +411,12 @@ def generate_lineup_html(raw: RawMatchData) -> str:
     flex-direction: column;
     align-items: center;
     gap: 1px;
-    width: 48px;
+    width: 44px;
     text-align: center;
 }}
 .player-photo {{
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     object-fit: cover;
     border: 2px solid;
@@ -425,16 +425,16 @@ def generate_lineup_html(raw: RawMatchData) -> str:
 .player-photo.home {{ border-color: {HOME_COLOR}; }}
 .player-photo.away {{ border-color: {AWAY_COLOR}; }}
 .player-number {{
-    font-size: 11px;
+    font-size: 10px;
     font-weight: bold;
     color: #fff;
     line-height: 1;
 }}
 .player-name {{
-    font-size: 9px;
+    font-size: 8px;
     color: rgba(255,255,255,0.9);
     line-height: 1.2;
-    max-width: 50px;
+    max-width: 46px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

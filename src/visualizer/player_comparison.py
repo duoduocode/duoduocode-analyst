@@ -22,6 +22,8 @@ from __future__ import annotations
 import math
 import os
 import io
+import base64
+import unicodedata
 import textwrap
 from typing import Optional
 
@@ -157,7 +159,7 @@ def plot_player_comparison(
     dpi: int = 150,
 ):
     # ── 布局参数 ──
-    margin = 0.35
+    margin = 0.18
     header_h = 0.60
     footer_h = 0.30
 
@@ -188,7 +190,22 @@ def plot_player_comparison(
 
     dim_h = max(_dim_table_h(player_a), _dim_table_h(player_b), 2.0)
 
-    total_h = header_h + radar_row_h + info_row_h + dim_h + footer_h + margin * 2
+    # ── 图表区高度评估（快速判断哪些图存在） ──
+    chart_types = [
+        ("heatmap_b64",),
+        ("pass_chart_b64",),
+        ("dribble_chart_b64",),
+    ]
+    chart_rows = sum(1 for (k,) in chart_types
+                     if player_a.get(k) or player_b.get(k))
+    row_h_per = 2.10
+    gap_per = 0.12
+    label_h = 0.25
+    charts_h = chart_rows * (row_h_per + gap_per) - gap_per + label_h if chart_rows else 0.0
+    if charts_h > 0:
+        charts_h += 0.35  # top separator margin (room for sub-title + spacing)
+
+    total_h = header_h + radar_row_h + info_row_h + charts_h + dim_h + footer_h + margin * 2
 
     fig = plt.figure(figsize=(total_w, total_h), dpi=dpi)
     fig.patch.set_facecolor(BG_COLOR)
@@ -203,7 +220,7 @@ def plot_player_comparison(
                   fontsize=11, color=MUTED_COLOR, ha="center", va="center")
 
     # ═══════════════════ 雷达行：LLM_A │ 雷达 │ LLM_B ═══════════════════
-    radar_y0 = footer_h + dim_h + info_row_h + margin
+    radar_y0 = footer_h + dim_h + charts_h + info_row_h + margin
     radar_row_ax = fig.add_axes([0, radar_y0 / total_h, 1, radar_row_h / total_h])
     radar_row_ax.set_xlim(0, total_w); radar_row_ax.set_ylim(0, radar_row_h)
     radar_row_ax.axis("off"); radar_row_ax.set_facecolor(BG_COLOR)
@@ -215,15 +232,15 @@ def plot_player_comparison(
         x0 = margin if side == "left" else margin + llm_w + gap + radar_w + gap
         # 标题
         radar_row_ax.text(x0 + llm_w / 2, radar_row_h - 0.25, "球员点评",
-                          fontsize=10, color=color, ha="center", va="center", fontweight="bold")
+                          fontsize=12, color=color, ha="center", va="center", fontweight="bold")
         # 正文（自动换行）
-        wrapped = textwrap.fill(llm_text, width=16)
+        wrapped = textwrap.fill(llm_text, width=12)
         lines = wrapped.split("\n")
-        line_h = 0.17
-        text_y = radar_row_h - 0.60
-        for li in lines[:10]:  # 最多 10 行
-            radar_row_ax.text(x0 + llm_w / 2, text_y, li, fontsize=7.5,
-                              color=MUTED_COLOR, ha="center", va="center")
+        line_h = 0.25
+        text_y = radar_row_h - 0.68
+        for li in lines[:9]:  # 最多 9 行
+            radar_row_ax.text(x0 + llm_w / 2, text_y, li, fontsize=11,
+                              color=MUTED_COLOR, ha="center", va="center", fontweight="bold")
             text_y -= line_h
 
     # 雷达图
@@ -238,23 +255,51 @@ def plot_player_comparison(
     leg_y = radar_cy - radar_r - 0.55
     lx1 = radar_cx - 1.6
     lx2 = radar_cx + 0.3
+    # Normalize names for font compat
+    def _safe_name(n):
+        try:
+            dn = unicodedata.normalize('NFKD', n).encode('ascii', 'ignore').decode('ascii')
+            return dn if dn.strip() else n
+        except Exception:
+            return n
     radar_row_ax.plot([lx1, lx1 + 0.35], [leg_y, leg_y],
                       color=HOME_COLOR, linewidth=2, marker="o", markersize=4, zorder=4)
-    radar_row_ax.text(lx1 + 0.42, leg_y, player_a["name"], fontsize=7.5, color=HOME_COLOR,
+    radar_row_ax.text(lx1 + 0.42, leg_y, _safe_name(player_a["name"]), fontsize=7.5, color=HOME_COLOR,
                       va="center", fontweight="bold")
     radar_row_ax.plot([lx2, lx2 + 0.35], [leg_y, leg_y],
                       color=AWAY_COLOR, linewidth=2, linestyle="--", marker="s", markersize=4, zorder=4)
-    radar_row_ax.text(lx2 + 0.42, leg_y, player_b["name"], fontsize=7.5, color=AWAY_COLOR,
+    radar_row_ax.text(lx2 + 0.42, leg_y, _safe_name(player_b["name"]), fontsize=7.5, color=AWAY_COLOR,
                       va="center", fontweight="bold")
 
     # ═══════════════════ 球员基本信息行（左右并排，垂直布局） ═══════════════════
-    info_y0 = footer_h + dim_h + margin
+    info_y0 = footer_h + dim_h + charts_h + margin
     info_ax = fig.add_axes([0, info_y0 / total_h, 1, info_row_h / total_h])
     info_ax.set_xlim(0, total_w); info_ax.set_ylim(0, info_row_h)
     info_ax.axis("off"); info_ax.set_facecolor(BG_COLOR)
 
     _draw_player_info_compact(info_ax, player_a, info_left_x0, 0, info_panel_w, info_row_h, HOME_COLOR)
     _draw_player_info_compact(info_ax, player_b, info_right_x0, 0, info_panel_w, info_row_h, AWAY_COLOR)
+
+    # ═══════════════════ 比赛视觉分析（热图/传球/推进） ═══════════════════
+    if charts_h > 0:
+        charts_y0 = footer_h + dim_h + margin
+        charts_ax = fig.add_axes([0, charts_y0 / total_h, 1, charts_h / total_h])
+        charts_ax.set_xlim(0, total_w); charts_ax.set_ylim(0, charts_h)
+        charts_ax.axis("off"); charts_ax.set_facecolor(BG_COLOR)
+        # Subtle separator line spanning panel area
+        panel_start = info_left_x0
+        panel_end = info_right_x0 + info_panel_w
+        charts_ax.plot([panel_start, panel_end],
+                       [charts_h - 0.08, charts_h - 0.08],
+                       color=TABLE_BORDER, linewidth=0.5, alpha=0.3)
+        _draw_charts_row(fig, charts_ax, player_a, player_b,
+                         info_left_x0, info_right_x0, info_panel_w, total_w,
+                         HOME_COLOR, AWAY_COLOR)
+        # Section label (centered across panels)
+        panel_ctr = (info_left_x0 + info_right_x0 + info_panel_w) / 2
+        charts_ax.text(panel_ctr, charts_h - 0.22, "— 比赛视觉分析 —",
+                       fontsize=9, color=MUTED_COLOR, ha="center", va="bottom",
+                       alpha=0.8)
 
     # ═══════════════════ C1-C5 维度表格 ═══════════════════
     dim_y0 = footer_h + margin
@@ -276,7 +321,7 @@ def plot_player_comparison(
     out_dir = os.path.dirname(output_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight",
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", pad_inches=0.05,
                 facecolor=BG_COLOR, edgecolor="none")
     plt.close(fig)
 
@@ -314,7 +359,14 @@ def _draw_player_info_compact(ax, player: dict, x0: float, y_bot: float, w: floa
     # ── 姓名 + 号码 ──
     name_x = photo_cx + photo_r + 0.12
     num = str(player.get("number", "") or "")
+    # Normalize display name: strip accents for matplotlib font compatibility
     display_name = player["name"]
+    try:
+        dn = unicodedata.normalize('NFKD', display_name).encode('ascii', 'ignore').decode('ascii')
+        if dn.strip():
+            display_name = dn
+    except Exception:
+        pass
     ax.text(name_x, cy + 0.08, f"{display_name}  #{num}",
             fontsize=10, color=TEXT_COLOR, va="center", fontweight="bold")
 
@@ -394,6 +446,99 @@ def _draw_dim_table(ax, player: dict, x0: float, y_top: float, w: float, color: 
         ax.plot([inner_x, inner_x + w - 0.28], [sep_y, sep_y],
                 color=TABLE_BORDER, linewidth=0.5, alpha=0.4, zorder=1)
         cy -= 0.08
+
+
+def _draw_charts_row(fig, ax, player_a: dict, player_b: dict,
+                     info_left_x0: float, info_right_x0: float,
+                     info_panel_w: float, total_w: float,
+                     home_color: str, away_color: str) -> float:
+    """Draw the 3-row chart comparison area (heatmap / pass_chart / dribble_chart).
+
+    Returns total height used (in inches), or 0.0 if no charts available.
+    """
+    chart_types = [
+        ("heatmap_b64", "比赛热图"),
+        ("pass_chart_b64", "传球分布"),
+        ("dribble_chart_b64", "带球推进"),
+    ]
+    row_h = 2.10          # height per chart row
+    label_h = 0.25         # label above each row
+    gap = 0.12             # gap between rows
+    chart_w = info_panel_w - 0.20  # chart display width
+    # 图片 display 尺寸 (英寸)：假设原图~290×175，按高度 1.60" contain
+    img_display_h = 1.45
+    img_display_w = chart_w - 0.40
+
+    # Count how many chart types have data for either player
+    available_rows = []
+    for key, label in chart_types:
+        has_a = player_a.get(key)
+        has_b = player_b.get(key)
+        if has_a or has_b:
+            available_rows.append((key, label, has_a, has_b))
+
+    if not available_rows:
+        return 0.0
+
+    total_charts_h = len(available_rows) * (row_h + gap) - gap + label_h
+
+    # Y starts from top of the area going downward
+    y_cur = total_charts_h
+
+    for key, label, has_a, has_b in available_rows:
+        y_top = y_cur
+        y_bot = y_top - row_h
+
+        # Row label (centered across both panel areas)
+        panel_center_x = (info_left_x0 + info_right_x0 + info_panel_w) / 2
+        ax.text(panel_center_x, y_top - 0.05, label,
+                fontsize=8.5, color=MUTED_COLOR, ha="center", va="bottom",
+                fontweight="bold")
+
+        # Player A chart (left panel)
+        _draw_chart_card(fig, ax, has_a,
+                         info_left_x0 + 0.10, y_bot + 0.18,
+                         img_display_w, img_display_h,
+                         home_color, "暂无数据")
+
+        # Player B chart (right panel)
+        _draw_chart_card(fig, ax, has_b,
+                         info_right_x0 + 0.10, y_bot + 0.18,
+                         img_display_w, img_display_h,
+                         away_color, "暂无数据")
+
+        y_cur = y_bot - gap
+
+    return total_charts_h
+
+
+def _draw_chart_card(fig, ax, b64_data, x: float, y: float, w: float, h: float,
+                     color: str, placeholder: str):
+    """Draw a single chart card with border. b64_data can be None (placeholder)."""
+    # Card background
+    card = mpatches.FancyBboxPatch((x, y), w, h,
+                                    boxstyle="round,pad=0.06", linewidth=0.8,
+                                    edgecolor=color, facecolor=CARD_BG,
+                                    alpha=0.6, zorder=2)
+    ax.add_patch(card)
+
+    if b64_data:
+        try:
+            # Parse base64 data URI
+            header, encoded = b64_data.split(",", 1)
+            img_bytes = base64.b64decode(encoded)
+            import matplotlib.image as mpimg
+            from io import BytesIO
+            img_arr = mpimg.imread(BytesIO(img_bytes))
+            pad = 0.08
+            ax.imshow(img_arr, extent=[x + pad, x + w - pad, y + pad, y + h - pad],
+                      aspect='auto', zorder=3, interpolation='bilinear')
+        except Exception:
+            pass
+    else:
+        ax.text(x + w / 2, y + h / 2, placeholder,
+                fontsize=9, color=MUTED_COLOR, ha="center", va="center",
+                alpha=0.7, fontstyle="italic")
 
 
 def _draw_radar(ax, player_a: dict, player_b: dict,
@@ -498,6 +643,9 @@ def build_player_comparison_data(
     run_km: float = None,          # 跑动距离 (km)
     carry_km: float = None,        # 带球推进距离 (km)
     llm_summary: str = "",         # LLM 分析点评
+    heatmap_b64: str = None,
+    pass_chart_b64: str = None,
+    dribble_chart_b64: str = None,
 ):
     pd = next((p for p in player_data_list if p.name == player_name), None)
     if pd is None:
@@ -577,6 +725,9 @@ def build_player_comparison_data(
         "run_km": run_km,
         "carry_km": carry_km,
         "llm_summary": llm_summary,
+        "heatmap_b64": heatmap_b64,
+        "pass_chart_b64": pass_chart_b64,
+        "dribble_chart_b64": dribble_chart_b64,
     }
 
 

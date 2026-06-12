@@ -461,6 +461,31 @@ def _parse_player_from_lineup(lu: dict) -> PlayerStats:
     if passes_acc > 100 and passes_total > 0:
         passes_acc = round(passes_acc / max(passes_total, 1) * 100, 1)
 
+    # 回退计算：当 API 不返回百分比字段时，从分子/分母自行计算
+    _tackles_total = _safe_int(parsed.get("tackles_total"))
+    _tackles_won = _safe_int(parsed.get("tackles_won"))
+    _tackles_won_pct = _safe_float(parsed.get("tackles_won_pct"))
+    if _tackles_total > 0 and _tackles_won_pct == 0:
+        _tackles_won_pct = round(_tackles_won / _tackles_total * 100, 1)
+
+    _duels_total = _safe_int(parsed.get("duels_total"))
+    _duels_won = _safe_int(parsed.get("duels_won"))
+    _duels_won_pct = _safe_float(parsed.get("duels_won_pct"))
+    if _duels_total > 0 and _duels_won_pct == 0:
+        _duels_won_pct = round(_duels_won / _duels_total * 100, 1)
+
+    _aerials = _safe_int(parsed.get("aerials"))
+    _aerials_won = _safe_int(parsed.get("aerials_won"))
+    _aerials_won_pct = _safe_float(parsed.get("aerials_won_pct"))
+    if _aerials > 0 and _aerials_won_pct == 0:
+        _aerials_won_pct = round(_aerials_won / _aerials * 100, 1)
+
+    _long_balls = _safe_int(parsed.get("long_balls"))
+    _long_balls_won = _safe_int(parsed.get("long_balls_won"))
+    _long_balls_won_pct = _safe_float(parsed.get("long_balls_won_pct"))
+    if _long_balls > 0 and _long_balls_won_pct == 0:
+        _long_balls_won_pct = round(_long_balls_won / _long_balls * 100, 1)
+
     return PlayerStats(
         id=player_id, name=player_name, number=jersey_number,
         position=_position_id_to_name(position_id),
@@ -478,9 +503,9 @@ def _parse_player_from_lineup(lu: dict) -> PlayerStats:
         passes_final_third=_safe_int(parsed.get("passes_final_third")),
         tackles_total=_safe_int(parsed.get("tackles_total")),
         tackles_interceptions=_safe_int(parsed.get("tackles_interceptions")),
-        tackles_won_pct=_safe_float(parsed.get("tackles_won_pct")),
-        duels_total=_safe_int(parsed.get("duels_total")),
-        duels_won=_safe_int(parsed.get("duels_won")),
+        tackles_won_pct=_tackles_won_pct,
+        duels_total=_duels_total,
+        duels_won=_duels_won,
         dribbles_attempts=_safe_int(parsed.get("dribbles_attempts")),
         dribbles_success=_safe_int(parsed.get("dribbles_success")),
         fouls_committed=_safe_int(parsed.get("fouls_committed")),
@@ -505,7 +530,7 @@ def _parse_player_from_lineup(lu: dict) -> PlayerStats:
         dribbled_past=_safe_int(parsed.get("dribbled_past")),
         aerials_won=_safe_int(parsed.get("aerials_won")),
         aerials=_safe_int(parsed.get("aerials")),
-        aerials_won_pct=_safe_float(parsed.get("aerials_won_pct")),
+        aerials_won_pct=_aerials_won_pct,
         penalties_won=_safe_int(parsed.get("penalties_won")),
         penalties_scored=_safe_int(parsed.get("penalties_scored")),
         chances_created=_safe_int(parsed.get("chances_created")),
@@ -513,7 +538,7 @@ def _parse_player_from_lineup(lu: dict) -> PlayerStats:
         hit_woodwork=_safe_int(parsed.get("hit_woodwork")),
         crosses_accurate=_safe_int(parsed.get("crosses_accurate")),
         passes_accurate=_safe_int(parsed.get("passes_accurate")),
-        duels_won_pct=_safe_float(parsed.get("duels_won_pct")),
+        duels_won_pct=_duels_won_pct,
         back_passes=_safe_int(parsed.get("back_passes")),
         # 门将专属 + 长传
         goals_conceded=_safe_int(parsed.get("goals_conceded")),
@@ -524,7 +549,7 @@ def _parse_player_from_lineup(lu: dict) -> PlayerStats:
         error_lead_to_shot=_safe_int(parsed.get("error_lead_to_shot")),
         long_balls=_safe_int(parsed.get("long_balls")),
         long_balls_won=_safe_int(parsed.get("long_balls_won")),
-        long_balls_won_pct=_safe_float(parsed.get("long_balls_won_pct")),
+        long_balls_won_pct=_long_balls_won_pct,
         # 2026-06-08: 最后一批补全 — 覆盖到100%
         shots_off=_safe_int(parsed.get("shots_off")),
         offsides=_safe_int(parsed.get("offsides")),
