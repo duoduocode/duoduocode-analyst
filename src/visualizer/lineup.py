@@ -746,14 +746,16 @@ def plot_lineup(raw: RawMatchData, output_path: str, dpi: int = 150) -> str:
                 col = int(str(grid).split(":")[0])
             else:
                 col = 3
-            x_map = {1: 0.04, 2: 0.18, 3: 0.36, 4: 0.56, 5: 0.80}
+            # 宽度: 边路球员贴近边线 (2% / 84%)，中间更分散
+            x_map = {1: 0.02, 2: 0.20, 3: 0.42, 4: 0.64, 5: 0.84}
             x = PX * x_map.get(col, 0.5)
             if not is_home:
                 x = PX - x
             n_col = sum(1 for pp in players if _col(pp.grid) == col)
             idx = sum(1 for pp in players if _col(pp.grid) == col and pp.id < p.id)
-            y_range = PY * 0.74
-            y_start = PY * 0.13
+            # 纵向: 缩小散布范围，前锋天然更靠近中线
+            y_range = PY * 0.58
+            y_start = PY * 0.21
             spacing = y_range / max(n_col + 1, 1)
             y = y_start + spacing * (idx + 1)
             result[p.id] = (x, y)

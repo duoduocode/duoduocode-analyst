@@ -1,12 +1,13 @@
 """
 战术分析图表生成模块
 
-生成 7 张图表：
+生成 8 张图表：
   1. 战术维度双雷达图 (PNG)
-  2. 时段射门分组柱状图 (PNG)
-  3. PPDA 衰退双线折线图 (PNG)
-  4. 控球率摇摆面积图 (PNG)
-  5. 关键事件时间轴 + 执行评分卡 + 克制矩阵 (HTML 内联)
+  2. 时段射门分组柱状图 + xG 累积 (PNG)
+  3. PPDA 全场对比柱状图 (PNG)
+  4. PPDA 压迫强度随时间变化曲线 (PNG)
+  5. 控球率摇摆面积图 (PNG)
+  6. 关键事件时间轴 + 执行评分卡 + 克制矩阵 (HTML 内联)
 
 风格与球员贡献图表保持一致：暗色背景 #1a1a2e、主队绿/客队蓝配色。
 """
@@ -283,6 +284,47 @@ def plot_ppda_bar(
     return output_path
 
 
+def plot_ppda_timeline(
+    home_name: str, away_name: str,
+    home_trend: list[float], away_trend: list[float],
+    output_path: str, dpi: int = 150,
+) -> str:
+    """PPDA 压迫强度随时间变化双线折线图（6 个 15 分钟窗口）。"""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    fig.patch.set_facecolor(BG_COLOR)
+    ax.set_facecolor(BG_COLOR)
+
+    windows = ["0-15", "15-30", "30-45", "45-60", "60-75", "75-90"]
+    x = np.arange(len(windows))
+
+    ax.plot(x, home_trend, color=HOME_COLOR, linewidth=2.2, marker="o", markersize=8,
+            label=home_name, zorder=5)
+    ax.plot(x, away_trend, color=AWAY_COLOR, linewidth=2.2, marker="s", markersize=8,
+            label=away_name, zorder=5)
+
+    # 标注数值
+    for i, (hv, av) in enumerate(zip(home_trend, away_trend)):
+        ax.annotate(str(hv), (x[i], hv), textcoords="offset points",
+                    xytext=(0, -14), ha="center", fontsize=8,
+                    color=HOME_COLOR, fontweight="bold")
+        ax.annotate(str(av), (x[i], av), textcoords="offset points",
+                    xytext=(0, 10), ha="center", fontsize=8,
+                    color=AWAY_COLOR, fontweight="bold")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(windows, fontsize=10, color=TEXT_COLOR)
+    _setup_style(ax, f"压迫强度变化 (PPDA) — {home_name} vs {away_name}")
+    ax.set_ylabel("PPDA（越低压迫越强）", color=TEXT_COLOR, fontsize=9)
+    ax.invert_yaxis()
+    ax.legend(facecolor=BG_COLOR, edgecolor=GRID_COLOR, labelcolor=TEXT_COLOR,
+              fontsize=10, loc="upper right")
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=BG_COLOR)
+    plt.close(fig)
+    return output_path
+
+
 def plot_possession_area(
     home_name: str, away_name: str,
     home_trend: list[float], away_trend: list[float],
@@ -310,6 +352,382 @@ def plot_possession_area(
     ax.set_ylim(0, 100)
     ax.legend(facecolor=BG_COLOR, edgecolor=GRID_COLOR, labelcolor=TEXT_COLOR, fontsize=9,
               loc="upper right")
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=BG_COLOR)
+    plt.close(fig)
+    return output_path
+
+
+# ═══════════════════════════════════════════════════════════
+# 压迫分析板块图表
+# ═══════════════════════════════════════════════════════════
+
+def plot_pressing_effectiveness(
+    home_name: str, away_name: str,
+    ppda_trend: dict, possession_trend: dict,
+    shot_segments: dict,
+    goal_events: list[dict],
+    output_path: str, dpi: int = 150,
+) -> str:
+    """压迫效果图：PPDA · xG · 射门（三面板）。
+
+    Panel 1 (40%): PPDA 双线 + 控球优势带 + 进球标签
+    Panel 2 (30%): xG 柱状
+    Panel 3 (30%): 射门堆叠柱 (射正深色 + 射偏浅色)
+    X 轴标注 "0-15分钟" 格式。
+    """
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True,
+                                         gridspec_kw={"height_ratios": [4, 3, 3]})
+    fig.patch.set_facecolor(BG_COLOR)
+
+    win_labels = ["0-15分钟", "15-30分钟", "30-45分钟", "45-60分钟", "60-75分钟", "75-90分钟"]
+    x = np.arange(6)
+    h_ppda = ppda_trend["home"]
+    a_ppda = ppda_trend["away"]
+    h_poss = possession_trend["home"]
+    a_poss = possession_trend["away"]
+    h_xg = shot_segments.get("home_xg", [0] * 6)
+    a_xg = shot_segments.get("away_xg", [0] * 6)
+    h_on = shot_segments.get("home_on", [0] * 6)
+    a_on = shot_segments.get("away_on", [0] * 6)
+    h_off = shot_segments.get("home_off", [0] * 6)
+    a_off = shot_segments.get("away_off", [0] * 6)
+
+    # ═══════════════════════════════════════════════════════
+    # Panel 1: PPDA + 控球优势带 + 进球标签
+    # ═══════════════════════════════════════════════════════
+    ax1.set_facecolor(BG_COLOR)
+
+    for i in range(6):
+        ax1.axvspan(i - 0.4, i + 0.4, alpha=0.08,
+                    color=HOME_COLOR if h_poss[i] >= 50 else AWAY_COLOR, zorder=0)
+
+    ax1.plot(x, h_ppda, color=HOME_COLOR, linewidth=2.2, marker="o", markersize=8,
+             label=f"{home_name} PPDA", zorder=5)
+    ax1.plot(x, a_ppda, color=AWAY_COLOR, linewidth=2.2, marker="s", markersize=8,
+             label=f"{away_name} PPDA", zorder=5)
+
+    for i, (hv, av) in enumerate(zip(h_ppda, a_ppda)):
+        ax1.annotate(str(hv), (x[i], hv), textcoords="offset points",
+                     xytext=(0, -14), ha="center", fontsize=7,
+                     color=HOME_COLOR, fontweight="bold")
+        ax1.annotate(str(av), (x[i], av), textcoords="offset points",
+                     xytext=(0, 10), ha="center", fontsize=7,
+                     color=AWAY_COLOR, fontweight="bold")
+
+    ppda_max = max(max(h_ppda), max(a_ppda))
+    for g in goal_events:
+        minute = g.get("minute", 0)
+        color = HOME_COLOR if g.get("team") == "home" else AWAY_COLOR
+        wi = min(max(int(minute // 15), 0), 5)
+        ax1.axvline(x=wi, color=color, linestyle="--", alpha=0.7, linewidth=1.2, zorder=3)
+        ax1.annotate(f"\u25cf {minute}' {g.get('label', '')}",
+                     xy=(wi, ppda_max * 0.9), fontsize=8, color=color, fontweight="bold",
+                     ha="center", va="bottom",
+                     bbox=dict(boxstyle="round,pad=0.2", facecolor=BG_COLOR,
+                               edgecolor=color, alpha=0.9))
+
+    ax1.set_ylabel("PPDA（越低越强）", color=TEXT_COLOR, fontsize=9)
+    ax1.invert_yaxis()
+    ax1.tick_params(colors=TEXT_COLOR, labelsize=8)
+    ax1.spines["bottom"].set_color(GRID_COLOR)
+    ax1.spines["left"].set_color(GRID_COLOR)
+    ax1.spines["top"].set_visible(False)
+    ax1.spines["right"].set_visible(False)
+    ax1.yaxis.grid(True, alpha=0.2, color=GRID_COLOR)
+    ax1.xaxis.grid(True, alpha=0.12, color=GRID_COLOR, linestyle="--")
+    ax1.set_title(f"压迫效果 — {home_name} vs {away_name}",
+                  color=TEXT_COLOR, fontsize=14, fontweight="bold", pad=12)
+    ax1.legend(facecolor=BG_COLOR, edgecolor=GRID_COLOR, labelcolor=TEXT_COLOR,
+               fontsize=9, loc="upper left")
+
+    # ═══════════════════════════════════════════════════════
+    # Panel 2: xG — 压迫换来的进球机会
+    # ═══════════════════════════════════════════════════════
+    ax2.set_facecolor(BG_COLOR)
+    width = 0.32
+
+    bars_h = ax2.bar(x - width / 2, h_xg, width, color=HOME_COLOR, alpha=0.75,
+                     label=f"{home_name} xG", edgecolor=HOME_COLOR, linewidth=0.5)
+    bars_a = ax2.bar(x + width / 2, a_xg, width, color=AWAY_COLOR, alpha=0.75,
+                     label=f"{away_name} xG", edgecolor=AWAY_COLOR, linewidth=0.5)
+
+    for i in range(6):
+        if h_xg[i] > 0:
+            ax2.text(x[i] - width / 2, h_xg[i] + max(max(h_xg), max(a_xg)) * 0.02,
+                     f"{h_xg[i]:.2f}", ha="center", fontsize=8, color=HOME_COLOR, fontweight="bold")
+        if a_xg[i] > 0:
+            ax2.text(x[i] + width / 2, a_xg[i] + max(max(h_xg), max(a_xg)) * 0.02,
+                     f"{a_xg[i]:.2f}", ha="center", fontsize=8, color=AWAY_COLOR, fontweight="bold")
+
+    for g in goal_events:
+        color = HOME_COLOR if g.get("team") == "home" else AWAY_COLOR
+        wi = min(max(int(g.get("minute", 0) // 15), 0), 5)
+        ax2.axvline(x=wi, color=color, linestyle="--", alpha=0.5, linewidth=1.2, zorder=3)
+
+    ax2.set_ylabel("xG", color=TEXT_COLOR, fontsize=9)
+    ax2.tick_params(colors=TEXT_COLOR, labelsize=8)
+    ax2.spines["bottom"].set_color(GRID_COLOR)
+    ax2.spines["left"].set_color(GRID_COLOR)
+    ax2.spines["top"].set_visible(False)
+    ax2.spines["right"].set_visible(False)
+    ax2.yaxis.grid(True, alpha=0.2, color=GRID_COLOR)
+    ax2.xaxis.grid(True, alpha=0.12, color=GRID_COLOR, linestyle="--")
+    ax2.legend(facecolor=BG_COLOR, edgecolor=GRID_COLOR, labelcolor=TEXT_COLOR,
+               fontsize=8, loc="upper left")
+
+    # ═══════════════════════════════════════════════════════
+    # Panel 3: 射门 — 射正(深色) + 射偏(浅色) 堆叠
+    # ═══════════════════════════════════════════════════════
+    ax3.set_facecolor(BG_COLOR)
+
+    h_max = max(max(h_on), max(h_off), max(a_on), max(a_off)) + 1
+    y_max = 0
+
+    for i in range(6):
+        xh = x[i] - width / 2
+        xa = x[i] + width / 2
+        bar_w = width
+
+        # 韩国: 射偏 → 射正 堆叠
+        if h_off[i] > 0:
+            b = ax3.bar(xh, h_off[i], bar_w, bottom=0,
+                        color=HOME_COLOR, alpha=0.25, edgecolor=HOME_COLOR, linewidth=0.3)
+        if h_on[i] > 0:
+            bottom = h_off[i]
+            b = ax3.bar(xh, h_on[i], bar_w, bottom=bottom,
+                        color=HOME_COLOR, alpha=0.85, edgecolor=HOME_COLOR, linewidth=0.5)
+        h_sum = h_on[i] + h_off[i]
+        if h_sum > 0:
+            ax3.text(xh, h_sum + h_max * 0.04, str(h_sum),
+                     ha="center", fontsize=9, color=HOME_COLOR, fontweight="bold")
+            y_max = max(y_max, h_sum + h_max * 0.15)
+
+        # 捷克: 射偏 → 射正 堆叠
+        if a_off[i] > 0:
+            ax3.bar(xa, a_off[i], bar_w, bottom=0,
+                    color=AWAY_COLOR, alpha=0.25, edgecolor=AWAY_COLOR, linewidth=0.3)
+        if a_on[i] > 0:
+            bottom = a_off[i]
+            ax3.bar(xa, a_on[i], bar_w, bottom=bottom,
+                    color=AWAY_COLOR, alpha=0.85, edgecolor=AWAY_COLOR, linewidth=0.5)
+        a_sum = a_on[i] + a_off[i]
+        if a_sum > 0:
+            ax3.text(xa, a_sum + h_max * 0.04, str(a_sum),
+                     ha="center", fontsize=9, color=AWAY_COLOR, fontweight="bold")
+            y_max = max(y_max, a_sum + h_max * 0.15)
+
+    # 图例句柄
+    from matplotlib.patches import Patch
+    legend_patches = [
+        Patch(facecolor=HOME_COLOR, alpha=0.85, label=f"{home_name} 射正"),
+        Patch(facecolor=HOME_COLOR, alpha=0.25, label=f"{home_name} 射偏"),
+        Patch(facecolor=AWAY_COLOR, alpha=0.85, label=f"{away_name} 射正"),
+        Patch(facecolor=AWAY_COLOR, alpha=0.25, label=f"{away_name} 射偏"),
+    ]
+    ax3.legend(handles=legend_patches, facecolor=BG_COLOR, edgecolor=GRID_COLOR,
+               labelcolor=TEXT_COLOR, fontsize=8, loc="upper left", ncol=2)
+
+    for g in goal_events:
+        color = HOME_COLOR if g.get("team") == "home" else AWAY_COLOR
+        wi = min(max(int(g.get("minute", 0) // 15), 0), 5)
+        ax3.axvline(x=wi, color=color, linestyle="--", alpha=0.5, linewidth=1.2, zorder=3)
+
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(win_labels, fontsize=9, color=TEXT_COLOR)
+    ax3.set_ylabel("射门次数", color=TEXT_COLOR, fontsize=9)
+    ax3.tick_params(colors=TEXT_COLOR, labelsize=8)
+    ax3.spines["bottom"].set_color(GRID_COLOR)
+    ax3.spines["left"].set_color(GRID_COLOR)
+    ax3.spines["top"].set_visible(False)
+    ax3.spines["right"].set_visible(False)
+    ax3.yaxis.grid(True, alpha=0.2, color=GRID_COLOR)
+    ax3.xaxis.grid(True, alpha=0.12, color=GRID_COLOR, linestyle="--")
+    ax3.set_ylim(0, max(y_max, 3))
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=BG_COLOR)
+    plt.close(fig)
+    return output_path
+
+
+def plot_pressing_efficiency(
+    home_name: str, away_name: str,
+    ppda_trend: dict,
+    def_actions: dict,
+    output_path: str, dpi: int = 150,
+) -> str:
+    """压迫效率图：PPDA · 防守动作 · 犯规（三面板，仿 pressing_effectiveness）。
+
+    Panel 1 (40%): PPDA 双线 + 效率比标注
+    Panel 2 (30%): 抢断 + 拦截 堆叠柱
+    Panel 3 (30%): 犯规柱状
+    使用队名，不用"主/客"。
+    """
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True,
+                                         gridspec_kw={"height_ratios": [4, 3, 3]})
+    fig.patch.set_facecolor(BG_COLOR)
+
+    win_labels = ["0-15分钟", "15-30分钟", "30-45分钟", "45-60分钟", "60-75分钟", "75-90分钟"]
+    x = np.arange(6)
+    h_ppda = ppda_trend["home"]
+    a_ppda = ppda_trend["away"]
+    h_tackles = def_actions["home"].get("tackles", [0] * 6)
+    h_interceptions = def_actions["home"].get("interceptions", [0] * 6)
+    h_fouls = def_actions["home"].get("fouls", [0] * 6)
+    a_tackles = def_actions["away"].get("tackles", [0] * 6)
+    a_interceptions = def_actions["away"].get("interceptions", [0] * 6)
+    a_fouls = def_actions["away"].get("fouls", [0] * 6)
+
+    h_eff = [round((h_tackles[i] + h_interceptions[i]) / max(h_fouls[i], 1), 1) for i in range(6)]
+    a_eff = [round((a_tackles[i] + a_interceptions[i]) / max(a_fouls[i], 1), 1) for i in range(6)]
+
+    # ═══════════════════════════════════════════════════════
+    # Panel 1: PPDA + 效率比
+    # ═══════════════════════════════════════════════════════
+    ax1.set_facecolor(BG_COLOR)
+
+    ax1.plot(x, h_ppda, color=HOME_COLOR, linewidth=2.2, marker="o", markersize=8,
+             label=f"{home_name} PPDA", zorder=5)
+    ax1.plot(x, a_ppda, color=AWAY_COLOR, linewidth=2.2, marker="s", markersize=8,
+             label=f"{away_name} PPDA", zorder=5)
+
+    for i, (hv, av) in enumerate(zip(h_ppda, a_ppda)):
+        ax1.annotate(str(hv), (x[i], hv), textcoords="offset points",
+                     xytext=(0, -14), ha="center", fontsize=7,
+                     color=HOME_COLOR, fontweight="bold")
+        ax1.annotate(str(av), (x[i], av), textcoords="offset points",
+                     xytext=(0, 10), ha="center", fontsize=7,
+                     color=AWAY_COLOR, fontweight="bold")
+
+    # 效率比标注：在 PPDA 线下方用小字标出
+    ppda_min = min(min(h_ppda), min(a_ppda))
+    ppda_max = max(max(h_ppda), max(a_ppda))
+    for i in range(6):
+        y_pos = ppda_max + (ppda_max - ppda_min) * 0.06
+        ax1.text(x[i], y_pos, f"效{h_eff[i]} {home_name[:1]}", ha="center", fontsize=6,
+                 color=HOME_COLOR, alpha=0.8)
+        ax1.text(x[i], y_pos + (ppda_max - ppda_min) * 0.04, f"效{a_eff[i]} {away_name[:1]}", ha="center", fontsize=6,
+                 color=AWAY_COLOR, alpha=0.8)
+
+    ax1.set_ylabel("PPDA（越低越强）", color=TEXT_COLOR, fontsize=9)
+    ax1.invert_yaxis()
+    ax1.tick_params(colors=TEXT_COLOR, labelsize=8)
+    ax1.spines["bottom"].set_color(GRID_COLOR)
+    ax1.spines["left"].set_color(GRID_COLOR)
+    ax1.spines["top"].set_visible(False)
+    ax1.spines["right"].set_visible(False)
+    ax1.yaxis.grid(True, alpha=0.2, color=GRID_COLOR)
+    ax1.xaxis.grid(True, alpha=0.12, color=GRID_COLOR, linestyle="--")
+    ax1.set_title(f"压迫效率 — {home_name} vs {away_name}",
+                  color=TEXT_COLOR, fontsize=14, fontweight="bold", pad=12)
+    ax1.legend(facecolor=BG_COLOR, edgecolor=GRID_COLOR, labelcolor=TEXT_COLOR,
+               fontsize=9, loc="upper left")
+
+    # ═══════════════════════════════════════════════════════
+    # Panel 2: 抢断 + 拦截 堆叠 (干净的防守动作)
+    # ═══════════════════════════════════════════════════════
+    ax2.set_facecolor(BG_COLOR)
+    width = 0.32
+    h_max2 = max(max(h_tackles), max(h_interceptions), max(a_tackles), max(a_interceptions)) + 1
+    y2_max = 0
+
+    for i in range(6):
+        xh = x[i] - width / 2
+        xa = x[i] + width / 2
+
+        # 抢断 → 拦截 堆叠
+        if h_tackles[i] > 0:
+            ax2.bar(xh, h_tackles[i], width, bottom=0,
+                    color=HOME_COLOR, alpha=0.85, edgecolor=HOME_COLOR, linewidth=0.5)
+        if h_interceptions[i] > 0:
+            ax2.bar(xh, h_interceptions[i], width, bottom=h_tackles[i],
+                    color=HOME_COLOR, alpha=0.25, edgecolor=HOME_COLOR, linewidth=0.3)
+        h_sum = h_tackles[i] + h_interceptions[i]
+        if h_sum > 0:
+            ax2.text(xh, h_sum + h_max2 * 0.04, str(h_sum),
+                     ha="center", fontsize=9, color=HOME_COLOR, fontweight="bold")
+            y2_max = max(y2_max, h_sum + h_max2 * 0.15)
+
+        if a_tackles[i] > 0:
+            ax2.bar(xa, a_tackles[i], width, bottom=0,
+                    color=AWAY_COLOR, alpha=0.85, edgecolor=AWAY_COLOR, linewidth=0.5)
+        if a_interceptions[i] > 0:
+            ax2.bar(xa, a_interceptions[i], width, bottom=a_tackles[i],
+                    color=AWAY_COLOR, alpha=0.25, edgecolor=AWAY_COLOR, linewidth=0.3)
+        a_sum = a_tackles[i] + a_interceptions[i]
+        if a_sum > 0:
+            ax2.text(xa, a_sum + h_max2 * 0.04, str(a_sum),
+                     ha="center", fontsize=9, color=AWAY_COLOR, fontweight="bold")
+            y2_max = max(y2_max, a_sum + h_max2 * 0.15)
+
+    from matplotlib.patches import Patch
+    legend2 = [
+        Patch(facecolor=HOME_COLOR, alpha=0.85, label=f"{home_name} 抢断"),
+        Patch(facecolor=HOME_COLOR, alpha=0.25, label=f"{home_name} 拦截"),
+        Patch(facecolor=AWAY_COLOR, alpha=0.85, label=f"{away_name} 抢断"),
+        Patch(facecolor=AWAY_COLOR, alpha=0.25, label=f"{away_name} 拦截"),
+    ]
+    ax2.legend(handles=legend2, facecolor=BG_COLOR, edgecolor=GRID_COLOR,
+               labelcolor=TEXT_COLOR, fontsize=8, loc="upper left", ncol=2)
+
+    ax2.set_ylabel("防守动作", color=TEXT_COLOR, fontsize=9)
+    ax2.tick_params(colors=TEXT_COLOR, labelsize=8)
+    ax2.spines["bottom"].set_color(GRID_COLOR)
+    ax2.spines["left"].set_color(GRID_COLOR)
+    ax2.spines["top"].set_visible(False)
+    ax2.spines["right"].set_visible(False)
+    ax2.yaxis.grid(True, alpha=0.2, color=GRID_COLOR)
+    ax2.xaxis.grid(True, alpha=0.12, color=GRID_COLOR, linestyle="--")
+    ax2.set_ylim(0, max(y2_max, 3))
+
+    # ═══════════════════════════════════════════════════════
+    # Panel 3: 犯规 — 压迫的代价
+    # ═══════════════════════════════════════════════════════
+    ax3.set_facecolor(BG_COLOR)
+
+    y3_max = 0
+    for i in range(6):
+        xh = x[i] - width / 2
+        xa = x[i] + width / 2
+
+        if h_fouls[i] > 0:
+            ax3.bar(xh, h_fouls[i], width,
+                    color=HOME_COLOR, alpha=0.65, edgecolor=HOME_COLOR, linewidth=0.5,
+                    hatch="////", zorder=3)
+        if h_fouls[i] > 0:
+            ax3.text(xh, h_fouls[i] + max(max(h_fouls), max(a_fouls), 1) * 0.04,
+                     str(h_fouls[i]), ha="center", fontsize=9, color=HOME_COLOR, fontweight="bold")
+            y3_max = max(y3_max, h_fouls[i] + max(max(h_fouls), max(a_fouls), 1) * 0.15)
+
+        if a_fouls[i] > 0:
+            ax3.bar(xa, a_fouls[i], width,
+                    color=AWAY_COLOR, alpha=0.65, edgecolor=AWAY_COLOR, linewidth=0.5,
+                    hatch="////", zorder=3)
+        if a_fouls[i] > 0:
+            ax3.text(xa, a_fouls[i] + max(max(h_fouls), max(a_fouls), 1) * 0.04,
+                     str(a_fouls[i]), ha="center", fontsize=9, color=AWAY_COLOR, fontweight="bold")
+            y3_max = max(y3_max, a_fouls[i] + max(max(h_fouls), max(a_fouls), 1) * 0.15)
+
+    legend3 = [
+        Patch(facecolor=HOME_COLOR, alpha=0.65, hatch="////", label=f"{home_name} 犯规"),
+        Patch(facecolor=AWAY_COLOR, alpha=0.65, hatch="////", label=f"{away_name} 犯规"),
+    ]
+    ax3.legend(handles=legend3, facecolor=BG_COLOR, edgecolor=GRID_COLOR,
+               labelcolor=TEXT_COLOR, fontsize=8, loc="upper left")
+
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(win_labels, fontsize=9, color=TEXT_COLOR)
+    ax3.set_ylabel("犯规次数", color=TEXT_COLOR, fontsize=9)
+    ax3.tick_params(colors=TEXT_COLOR, labelsize=8)
+    ax3.spines["bottom"].set_color(GRID_COLOR)
+    ax3.spines["left"].set_color(GRID_COLOR)
+    ax3.spines["top"].set_visible(False)
+    ax3.spines["right"].set_visible(False)
+    ax3.yaxis.grid(True, alpha=0.2, color=GRID_COLOR)
+    ax3.xaxis.grid(True, alpha=0.12, color=GRID_COLOR, linestyle="--")
+    ax3.set_ylim(0, max(y3_max, 2))
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=BG_COLOR)
@@ -1002,6 +1420,15 @@ def generate_all_tactical_charts(
                   ppda_data["away"]["full_match"],
                   ppda_path, dpi)
     result["tactical_ppda"] = ppda_path
+
+    # PPDA 压迫强度时间曲线
+    ppda_trend = tactical_data["match_flow"].get("ppda_trend", {})
+    if ppda_trend:
+        ppda_timeline_path = str(img / "tactical_ppda_timeline.png")
+        plot_ppda_timeline(home_name, away_name,
+                           ppda_trend["home"], ppda_trend["away"],
+                           ppda_timeline_path, dpi)
+        result["tactical_ppda_timeline"] = ppda_timeline_path
 
     # 控球面积图
     possession_trend = tactical_data["match_flow"]["possession_trend"]

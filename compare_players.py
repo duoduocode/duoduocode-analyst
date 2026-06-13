@@ -20,8 +20,12 @@ from src.engine.player_insights import (
 )
 from src.engine.key_events import detect_key_events
 from src.visualizer.player_comparison import (
-    plot_player_comparison, build_player_comparison_data, DIM_LABELS,
+    plot_player_comparison, plot_player_comparison_summary,
+    plot_player_comparison_detail, build_player_comparison_data, DIM_LABELS,
+    _fmt_val,
 )
+from src.composer.prompt_loader import PromptLoader
+from src.generator.llm_client import LLMClient
 
 # ═══════════════════════════════════════
 # 配置
@@ -629,9 +633,8 @@ def main():
     compare_dir = f"{match_dir}/compare"
     safe_a = args.player_a.replace(" ", "_")
     safe_b = args.player_b.replace(" ", "_")
-    output_path = args.output or f"{compare_dir}/{safe_a}_vs_{safe_b}.png"
 
-    # 加载 LLM 点评
+    # ── 加载 LLM 点评 ──
     v6_path = f"data/computed/{args.match_id}_players_v6.json"
     llm_a = ""
     llm_b = ""
@@ -649,20 +652,123 @@ def main():
 
     # ── 构建全场最终比分（含加时/点球） ──
     full_score = _build_full_score(score, raw)
-
     match_title = f"{home_name}  {full_score}  {away_name}"
 
-    print(f"  生成对比图: {output_path}")
-    plot_player_comparison(
+    default_summary_path = f"{compare_dir}/{safe_a}_vs_{safe_b}_summary.png"
+    default_detail_path = f"{compare_dir}/{safe_a}_vs_{safe_b}_detail.png"
+
+    summary_path = args.output.replace(".png", "_summary.png") if args.output else default_summary_path
+    detail_path = args.output.replace(".png", "_detail.png") if args.output else default_detail_path
+
+    # ── LLM 对比总结 ──
+    comparison_summary = ""
+    try:
+        llm_config = config.get("llm", {})
+        api_key = llm_config.get("api_key", "")
+        if api_key.startswith("${"):
+            env_key = api_key.strip("${}").strip()
+            api_key = os.environ.get(env_key, "")
+        if api_key:
+            client = LLMClient(llm_config)
+            loader = PromptLoader()
+
+            # 从实际指标提取关键数据（不用 z-score）
+            def _key_stats(player_data):
+                """从 dim_tables 提取关键指标文本。"""
+                tables = player_data.get("dim_tables", {})
+                parts = []
+                # C1 进攻：进球、助攻、射门、射正、xG
+                c1 = tables.get("进攻", [])
+                for name, val, tr, fr, *_ in c1:
+                    if name in ("进球", "助攻", "xG", "射门", "射正", "创造机会"):
+                        parts.append(f"{name}{_fmt_val(val)}")
+                # C2 推进：成功过人、传中
+                c2 = tables.get("推进", [])
+                for name, val, tr, fr, *_ in c2:
+                    if name in ("成功过人", "精准传中", "传中"):
+                        parts.append(f"{name}{_fmt_val(val)}")
+                # C3 控制：传球、传球成功率
+                c3 = tables.get("控制", [])
+                for name, val, tr, fr, *_ in c3:
+                    if name in ("传球", "传球成功率", "触球"):
+                        parts.append(f"{name}{_fmt_val(val)}")
+                # C4 防守：抢断、拦截
+                c4 = tables.get("防守", [])
+                for name, val, tr, fr, *_ in c4:
+                    if name in ("抢断", "拦截", "解围"):
+                        parts.append(f"{name}{_fmt_val(val)}")
+                # C5 对抗：赢得对抗、对抗成功率
+                c5 = tables.get("对抗", [])
+                for name, val, tr, fr, *_ in c5:
+                    if name in ("赢得对抗", "对抗成功率"):
+                        parts.append(f"{name}{_fmt_val(val)}")
+                return "，".join(parts[:10]) if parts else "-"
+
+            stats_a = _key_stats(player_a_data)
+            stats_b = _key_stats(player_b_data)
+
+            # 比分上下文
+            score_home = raw.score.home
+            score_away = raw.score.away
+            a_is_home = player_a_data.get("team") == "home"
+            if a_is_home:
+                winner = home_name if score_home > score_away else away_name
+                loser = away_name if score_home > score_away else home_name
+                a_side = "胜方" if (score_home > score_away) else ("负方" if score_home < score_away else "平局")
+                b_side = "胜方" if (score_away > score_home) else ("负方" if score_away < score_home else "平局")
+            else:
+                winner = away_name if score_away > score_home else home_name
+                loser = home_name if score_away > score_home else away_name
+                a_side = "胜方" if (score_away > score_home) else ("负方" if score_away < score_home else "平局")
+                b_side = "胜方" if (score_home > score_away) else ("负方" if score_home < score_away else "平局")
+
+            system_prompt, user_prompt = loader.render("player_comparison",
+                match_title=match_title,
+                score_home=str(score_home),
+                score_away=str(score_away),
+                home_name=home_name,
+                away_name=away_name,
+                name_a=player_a_data["name"],
+                team_a=home_name if a_is_home else away_name,
+                side_a=a_side,
+                minutes_a=player_a_data.get("minutes", 0),
+                stats_a=stats_a,
+                events_a=player_a_data.get("key_events", ""),
+                name_b=player_b_data["name"],
+                team_b=away_name if a_is_home else home_name,
+                side_b=b_side,
+                minutes_b=player_b_data.get("minutes", 0),
+                stats_b=stats_b,
+                events_b=player_b_data.get("key_events", ""),
+            )
+            comparison_summary = client.generate(system_prompt, user_prompt)
+            print(f"  对比总结: {comparison_summary}")
+    except Exception as e:
+        print(f"  对比总结 LLM 调用失败: {e}")
+
+    # ── 生成汇总图 ──
+    print(f"  生成汇总图: {summary_path}")
+    plot_player_comparison_summary(
         match_title=match_title,
         home_name=home_name,
         away_name=away_name,
         player_a=player_a_data,
         player_b=player_b_data,
-        output_path=output_path,
+        output_path=summary_path,
         llm_a=llm_a,
         llm_b=llm_b,
+        comparison_summary=comparison_summary,
     )
+
+    # ── 生成详细数据对比图 ──
+    print(f"  生成详细对比图: {detail_path}")
+    plot_player_comparison_detail(
+        match_title=match_title,
+        player_a=player_a_data,
+        player_b=player_b_data,
+        output_path=detail_path,
+    )
+
     print(f"  完成!")
 
 

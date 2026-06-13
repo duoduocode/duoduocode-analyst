@@ -128,6 +128,9 @@ duoduocode-analyst/
     │   ├── tactical_radar.png          # 战术雷达图
     │   ├── tactical_shots.png          # 时段射门分布
     │   ├── tactical_ppda.png           # 压迫强度对比
+    │   ├── tactical_ppda_timeline.png  # 压迫强度时间曲线
+    │   ├── pressing_effectiveness.png  # 压迫效果图
+    │   ├── pressing_efficiency.png     # 压迫效率图
     │   ├── tactical_possession.png     # 控球摇摆图
     │   ├── lineup.png                 # 阵容图
     │   └── timeline.png               # 事件时间轴
@@ -138,48 +141,137 @@ duoduocode-analyst/
 
 ## 4. 统一报告生成管线 (generate_match_report.py)
 
-**当前推荐的一次性报告生成方式**，整合战术报告 V2 + 球员贡献 V6。
+**一次命令生成战术报告 + 球员贡献数据**。
 
-```
-generate_match_report.py <match_id>
-  │
-  ├─ 1. load_config() + load_match_data()  → 优先读取 data/raw/{id}/raw_data.json 缓存
-  │
-  ├─ 2. compute_full_score()  → 全场最终比分（常规 + 加时 + 点球大战总和）
-  │
-  ├─ 3. 【管道 B】generate_player_contribution_v6()
-  │   ├─ 加载 raw_data.json → run_v6(raw) → list[PlayerInsightV6]
-  │   ├─ LLM 角色分析 (31 名球员，~24K tokens)
-  │   ├─ 保存 JSON → data/computed/{id}_players_v6.json
-  │   └─ 保存 Excel → data/computed/{id}_players_v6.xlsx
-  │
-  ├─ 4. 【管道 A】generate_tactical_report_v2()
-  │   ├─ compute_tactical_analysis(raw) → 四层因果模型
-  │   ├─ LLM 战术叙事 (五段式，~3700 tokens)
-  │   ├─ generate_all_tactical_charts() → 雷达/控球/射门/PPDA
-  │   ├─ generate_event_timeline_html() + save_timeline_png()
-  │   ├─ generate_lineup_html() + save_lineup_png()
-  │   ├─ 保存 JSON → output/{id}_.../tactical_analysis.json
-  │   ├─ 保存 Excel → output/{id}_.../tactical_analysis.xlsx
-  │   └─ 组装 HTML → output/{id}_.../tactical_report.html
-  │
-  └─ 5. 【管道 C】generate_player_cards_v6()  (需 --cards-only)
-      └─ Playwright 渲染 PNG 卡片 → output/{id}_.../player_cards/
+```bash
+python generate_match_report.py 19683241           # 完整生成（战术 + 球员）
+python generate_match_report.py 19683241 --cards-only   # 只生成球员卡片
+python generate_match_report.py 19683241 --tactical-only # 只生成战术报告
+python compare_players.py 19683241 "PlayerA" "PlayerB"  # 球员对比（独立脚本）
 ```
 
-**输出目录总览**：
+---
+
+### 4.1 步骤 → 依赖 → 产出
+
+#### 第一步：拉取/加载原始数据
+
+| 项 | 内容 |
+|------|------|
+| **命令** | 内嵌在 `generate_match_report.py` 中，无需单独执行 |
+| **依赖** | `config.yaml`（API Token） |
+| **产出** | `data/raw/{id}/raw_data.json`（~800KB，全量 SportMonks V3 数据） |
+| **说明** | 首次从 API 拉取，后续读缓存；含 team/player/stats/events/trends/periods/coaches |
+
+#### 第二步：生成战术分析报告（管道 A）
+
+| 步骤 | 动作 | 依赖文件 | 产出文件 | 代码位置 |
+|------|------|---------|---------|---------|
+| A1 | 四层因果模型计算 | `data/raw/{id}/raw_data.json` | 内存中的 tactical_data dict | `src/engine/tactical_insights.py` |
+| A2 | LLM 五段战术叙事 | `prompts/tactical.yaml`, tactical_data | 叙事文本（~3700 tokens） | `src/composer/tactical_prompt.py` |
+| A3 | 战术图表生成 | tactical_data | `output/.../images/tactical_radar.png`<br>`output/.../images/tactical_possession.png`<br>`output/.../images/tactical_shots.png`<br>`output/.../images/tactical_ppda.png`<br>`output/.../images/tactical_ppda_timeline.png`<br>`output/.../images/pressing_effectiveness.png`<br>`output/.../images/pressing_efficiency.png` | `src/visualizer/tactical_charts.py` |
+| A4 | 事件时间轴 | `raw_data.json` | `output/.../images/timeline.png` | `src/visualizer/tactical_charts.py` |
+| A5 | 阵容图 | `raw_data.json` | `output/.../images/lineup.png` | `src/visualizer/lineup.py` |
+| A6 | 保存战术数据 | tactical_data | `output/.../tactical_analysis.json`<br>`output/.../tactical_analysis.xlsx` | `generate_match_report.py` |
+| A7 | 组装 HTML 报告 | 以上全部产物 | `output/.../tactical_report.html` ★ | `generate_match_report.py` |
+
+#### 第三步：生成球员贡献数据（管道 B，与管道 A 并行）
+
+| 步骤 | 动作 | 依赖文件 | 产出文件 | 代码位置 |
+|------|------|---------|---------|---------|
+| B1 | 五维贡献计算 | `data/raw/{id}/raw_data.json` | C1-C5 z-score + 队内/全场排名 | `src/engine/player_insights_v6.py` |
+| B2 | 角色分类 | B1 结果 | 角色标签（控场/推进/射手…） | `src/engine/player_insights_v6.py` |
+| B3 | 关键事件判定 | `raw_data.json` | 首开/绝杀/制胜/点球等标签 | `src/engine/key_events.py` |
+| B4 | LLM 球员叙事（31人） | `prompts/player_analysis.yaml`, B1+B2+B3 | 每人 ~80-120 字叙事 | `src/generator/llm_client.py` |
+| B5 | 保存 JSON | B1+B2+B3+B4 | `data/computed/{id}_players_v6.json`（~600KB） | `generate_match_report.py` |
+| B6 | 保存 Excel | B1+B2+B3+B4 | `data/computed/{id}_players_v6.xlsx`（9 sheets） | `src/reporter/player_excel.py` |
+
+> **JSON 文件字段**：name / player_id / number / pos / team / team_name / minutes / contributions{C1-C5} / role / llm_summary / events  
+> **Excel 9 sheets**：概要 / C1进攻 / C2推进 / C3控制 / C4防守 / C5对抗 / C6事件 / C7门将 / 角色叙事
+
+#### 第四步：生成球员贡献卡片（管道 C，需 `--cards-only` 触发）
+
+| 步骤 | 动作 | 依赖文件 | 产出文件 | 代码位置 |
+|------|------|---------|---------|---------|
+| C1 | 读取 JSON | `data/computed/{id}_players_v6.json` | 球员卡片数据 dict | `generate_cards_v6.py` |
+| C2 | 加载物理数据 | `data/{id}/{PlayerName}/run_data.json`（可选）<br>`data/{id}/{PlayerName}/carry_data.json`（可选） | 跑动距离(km) / 带球推进(km) | `generate_cards_v6.py` |
+| C3 | 构建卡片 HTML | C1 + C2 | HTML 字符串 | `generate_cards_v6.py` |
+| C4 | Playwright 渲染 | C3（HTML） | `output/.../player_cards/{Name}.png` | `generate_cards_v6.py` |
+
+> `run_data.json` / `carry_data.json` 缺失时不报错，卡片中不显示跑动/推进 chip。
+
+#### 第五步：球员对比（管道 D，独立运行 `compare_players.py`）
+
+| 步骤 | 动作 | 依赖文件 | 产出文件 | 代码位置 |
+|------|------|---------|---------|---------|
+| D1 | 加载比赛数据 | `data/raw/{id}/raw_data.json` | lineups + events | `compare_players.py` |
+| D2 | 五维检测器运行 | D1 | C1-C5 指标 + 队内/全场排名 | `src/engine/player_insights.py` |
+| D3 | 关键事件 | D1 | 首开/绝杀/制胜等标签 | `src/engine/key_events.py` |
+| D4 | 物理数据加载 | `data/{id}/{PlayerName}/run_data.json`（可选）<br>`data/{id}/{PlayerName}/carry_data.json`（可选） | 跑动距离 / 带球推进 | `compare_players.py` |
+| D5 | 加载 LLM 叙事 | `data/computed/{id}_players_v6.json` | 两名球员的叙事文本 | `compare_players.py` |
+| D6 | 绘制对比图 | D1+D2+D3+D4+D5 | `output/.../compare/{A}_vs_{B}.png` | `src/visualizer/player_comparison.py` |
+
+---
+
+### 4.2 完整文件清单
 
 ```
-output/{match_id}_{HOME}_vs_{AWAY}/
-├── tactical_report.html          # ★ 主力产品：战术分析报告 V2
-├── tactical_analysis.json/xlsx   # 战术数据
-├── images/                       # 战术图表 + 阵容 + 时间轴
-├── compare/                      # 球员对比图
-└── player_cards/                 # 球员贡献卡片
+外部输入（只读）
+  config.yaml                   # API Token + LLM 配置
+  prompts/tactical.yaml         # 战术叙事 Prompt 模板
+  prompts/player_analysis.yaml  # 球员叙事 Prompt 模板
 
-data/computed/
-├── {match_id}_players_v6.json    # 球员贡献原始数据
-└── {match_id}_players_v6.xlsx    # 球员贡献 Excel
+                     ┌─ 管道 A ─────────────────────────────────────
+                     │
+  data/raw/          │   output/{id}_{HOME}_vs_{AWAY}/
+  {id}/raw_data.json─┤   ├── tactical_report.html ★ 主力产品
+      (唯一数据源)    │   ├── tactical_analysis.json / .xlsx
+                     │   ├── images/
+                     │   │   ├── tactical_radar.png
+                     │   │   ├── tactical_possession.png
+                     │   │   ├── tactical_shots.png
+                     │   │   ├── tactical_ppda.png
+                     │   │   ├── tactical_ppda_timeline.png
+                     │   │   ├── pressing_effectiveness.png
+                     │   │   ├── pressing_efficiency.png
+                     │   │   ├── lineup.png
+                     │   │   └── timeline.png
+                     │
+                     └─ 管道 B ── data/computed/{id}_players_v6.json
+                           │                    └─ .xlsx (9 sheets)
+                           │
+                           ├─ 管道 C ── output/.../player_cards/{Name}.png
+                           │            (依赖: run_data.json / carry_data.json, 可选)
+                           │
+                           └─ 管道 D ── output/.../compare/{A}_vs_{B}.png
+                                        (依赖: raw_data.json + _players_v6.json
+                                               + run_data.json / carry_data.json, 可选)
+```
+
+---
+
+### 4.3 执行顺序规则
+
+| 管道 | 触发 | 前置条件 | 可并行? |
+|------|------|---------|--------|
+| A 战术报告 | 默认执行 | `raw_data.json` 存在 | 与 B 并行 |
+| B 球员贡献 | 默认执行 | `raw_data.json` 存在 | 与 A 并行 |
+| C 球员卡片 | `--cards-only` | 管道 B 完成（`_players_v6.json` 存在） | 不可与 B 并行 |
+| D 球员对比 | `compare_players.py` | 管道 B 完成 + `raw_data.json` 存在 | 可在 C 之后任意时刻 |
+
+---
+
+### 4.4 首次运行示例
+
+```bash
+# 第一步：生成完整报告（产出 raw_data.json + tactical_report.html + _players_v6.json/.xlsx）
+python generate_match_report.py 19683241
+
+# 第二步：生成球员卡片 PNG（依赖第一步的 _players_v6.json）
+python generate_match_report.py 19683241 --cards-only
+
+# 第三步（可选）：生成球员对比图
+python compare_players.py 19683241 "Declan Rice" "Vitinha"
 ```
 
 ---

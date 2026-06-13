@@ -278,7 +278,7 @@ def _calc_shot_segments(raw: RawMatchData) -> dict:
 
 
 def _calc_ppda_full(raw: RawMatchData) -> dict:
-    """全场 PPDA（不虚假均分到窗口）。"""
+    """全场 PPDA。"""
     def _ppda(team: str, opp: str) -> dict:
         s = raw.home_stats if team == "home" else raw.away_stats
         opp_s = raw.home_stats if opp == "home" else raw.away_stats
@@ -289,12 +289,69 @@ def _calc_ppda_full(raw: RawMatchData) -> dict:
         ppda = round(opp_p / max(tk + intercept + fl, 1), 1)
         return {
             "full_match": ppda,
-            "note": "全场均值；事件数据不支持逐窗口细分",
         }
     return {
         "home": _ppda("home", "away"),
         "away": _ppda("away", "home"),
     }
+
+
+def _calc_ppda_trend(raw: RawMatchData) -> dict:
+    """逐 15 分钟窗口 PPDA 压迫强度趋势。
+
+    从 trends 累计数据推算:
+      - type_id=80: 对方累计传球
+      - type_id=78: 累计抢断
+      - type_id=100: 累计拦截
+      - type_id=56: 累计犯规
+    窗口 PPDA = 窗口内对方传球 / max(窗口内防守动作, 1)
+    """
+    trends = raw.trends or {}
+    home_id = str(raw.home_team.id)
+    away_id = str(raw.away_team.id)
+
+    def _get_trend(type_id: str, team_id: str) -> list:
+        inner = trends.get(team_id, {})
+        pts = inner.get(type_id, [])
+        if not isinstance(pts, list):
+            return []
+        return sorted(pts, key=lambda p: p.minute)
+
+    def _cum_at(points: list, minute: float) -> float:
+        """返回 minute 时刻的累计值（取 ≤ minute 的最大观测值）。"""
+        val = 0.0
+        for p in points:
+            if p.minute <= minute:
+                val = p.value
+            else:
+                break
+        return val
+
+    windows = [(0, 15), (15, 30), (30, 45), (45, 60), (60, 75), (75, 90)]
+
+    def _team_ppda_trend(own_id: str, opp_id: str) -> list[float]:
+        tackles = _get_trend("78", own_id)
+        interceptions = _get_trend("100", own_id)
+        fouls = _get_trend("56", own_id)
+        opp_passes = _get_trend("80", opp_id)
+
+        vals = []
+        for start, end in windows:
+            t_delta = _cum_at(tackles, end) - _cum_at(tackles, start)
+            i_delta = _cum_at(interceptions, end) - _cum_at(interceptions, start)
+            f_delta = _cum_at(fouls, end) - _cum_at(fouls, start)
+            p_delta = _cum_at(opp_passes, end) - _cum_at(opp_passes, start)
+
+            def_actions = t_delta + i_delta + f_delta
+            ppda = round(p_delta / max(def_actions, 1), 1)
+            vals.append(ppda)
+
+        return vals
+
+    home_trend = _team_ppda_trend(home_id, away_id)
+    away_trend = _team_ppda_trend(away_id, home_id)
+
+    return {"home": home_trend, "away": away_trend}
 
 
 def _calc_possession_trend(raw: RawMatchData) -> dict:
@@ -537,6 +594,7 @@ def _calc_event_impact_windows(raw: RawMatchData, window_minutes: int = 10) -> l
 def compute_match_flow(raw: RawMatchData) -> dict:
     shot_segments = _calc_shot_segments(raw)
     ppda = _calc_ppda_full(raw)
+    ppda_trend = _calc_ppda_trend(raw)
     possession_trend = _calc_possession_trend(raw)
     rhythm = _calc_rhythm(raw, possession_trend)
     key_event_impacts = _calc_key_event_impacts(raw)
@@ -545,6 +603,7 @@ def compute_match_flow(raw: RawMatchData) -> dict:
     return {
         "rhythm": rhythm,
         "ppda": ppda,
+        "ppda_trend": ppda_trend,
         "shot_segments": shot_segments,
         "possession_trend": possession_trend,
         "key_event_impacts": key_event_impacts,

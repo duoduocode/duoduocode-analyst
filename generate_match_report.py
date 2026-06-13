@@ -143,6 +143,88 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
         logger.warning(f"战术图表生成失败: {e}")
         tactical_image_paths = {}
 
+    # ── 3.5 压迫分析图表 ──
+    def_actions = {}
+    goal_events = []
+    try:
+        from src.visualizer.tactical_charts import plot_pressing_effectiveness, plot_pressing_efficiency
+        # Goal events
+        goal_events = []
+        for e in raw.events:
+            if e.event_type == "Goal" and e.detail not in ("pen_shootout_goal", "pen_shootout_miss"):
+                team_label = "home" if e.team_id == raw.home_team.id else "away"
+                goal_events.append({
+                    "minute": e.time_elapsed,
+                    "label": e.player_name or "",
+                    "team": team_label,
+                })
+        # Defensive actions per window
+        windows = [(0, 15), (15, 30), (30, 45), (45, 60), (60, 75), (75, 90)]
+        def _cum_at(pts, minute):
+            val = 0.0
+            for p in sorted(pts, key=lambda x: x.minute):
+                if p.minute <= minute:
+                    val = p.value
+                else:
+                    break
+            return val
+
+        def _window_actions(own_team_id: str) -> dict:
+            result = {"tackles": [], "interceptions": [], "fouls": []}
+            for metric, tid in [("tackles", "78"), ("interceptions", "100"), ("fouls", "56")]:
+                pts = raw.trends.get(own_team_id, {}).get(tid, [])
+                for start, end in windows:
+                    delta = _cum_at(pts, end) - _cum_at(pts, start)
+                    result[metric].append(round(delta, 1))
+            return result
+
+        def_actions = {
+            "home": _window_actions(str(raw.home_team.id)),
+            "away": _window_actions(str(raw.away_team.id)),
+        }
+
+        ppda_trend = tactical_data["match_flow"]["ppda_trend"]
+        eff_path = str(images_dir / "pressing_effectiveness.png")
+        plot_pressing_effectiveness(home_name, away_name,
+                                    ppda_trend, tactical_data["match_flow"]["possession_trend"],
+                                    tactical_data["match_flow"]["shot_segments"],
+                                    goal_events, eff_path, dpi=dpi)
+        tactical_image_paths["pressing_effectiveness"] = str(Path(eff_path).relative_to(output_dir)).replace("\\", "/")
+
+        eff2_path = str(images_dir / "pressing_efficiency.png")
+        plot_pressing_efficiency(home_name, away_name, ppda_trend, def_actions,
+                                 eff2_path, dpi=dpi)
+        tactical_image_paths["pressing_efficiency"] = str(Path(eff2_path).relative_to(output_dir)).replace("\\", "/")
+        logger.info("  压迫分析图表已生成")
+    except Exception as e:
+        logger.warning(f"压迫分析图表跳过: {e}")
+
+    # ── 3.6 压迫分析 LLM 叙事 ──
+    pressing_narrative = ""
+    try:
+        if def_actions:
+            from src.composer.pressing_prompt import build_pressing_prompt
+            from src.generator.llm_client import LLMClient
+            from src.composer.prompt_loader import PromptLoader
+
+            llm = LLMClient(config["llm"])
+            pl = PromptLoader()
+            pressing_system, pressing_user = build_pressing_prompt(
+                home_name, away_name,
+                tactical_data["match_flow"]["ppda_trend"],
+                tactical_data["match_flow"]["possession_trend"],
+                tactical_data["match_flow"]["shot_segments"],
+                def_actions,
+                goal_events,
+                total_home, total_away,
+                loader=pl,
+            )
+            logger.info("调用 LLM 生成压迫分析叙事...")
+            pressing_narrative = llm.generate(pressing_system, pressing_user)
+            logger.info(f"  压迫叙事长度: {len(pressing_narrative)} 字符")
+    except Exception as e:
+        logger.warning(f"压迫叙事 LLM 跳过: {e}")
+
     # ── 4. 事件时间轴 ──
     timeline_html = ""
     timeline_png_rel = None
@@ -189,6 +271,7 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
         home_name, away_name, score, str(output_dir),
         timeline_html, timeline_png_rel, one_liner, lineup_html, raw,
         total_home, total_away, pen_home, pen_away, has_penalties,
+        pressing_narrative=pressing_narrative,
     )
     logger.info(f"  战术 HTML: {output_dir / 'tactical_report.html'}")
 
@@ -203,6 +286,7 @@ def _build_tactical_html(
     one_liner: str, lineup_html: str, raw,
     total_home: int, total_away: int,
     pen_home: int, pen_away: int, has_penalties: bool,
+    pressing_narrative: str = "",
 ):
     """组装独立战术分析 HTML 报告 (从 run_tactical_only.py 提取)。"""
     tac_sections = _parse_narrative_sections(tactical_narrative)
@@ -321,6 +405,35 @@ def _build_tactical_html(
         if tactical_image_paths.get("tactical_ppda"):
             H.append(f'<p style="text-align:center;margin:10px 0 4px;font-size:12px;color:#95a5a6">▼ 全场压迫强度对比</p>')
             H.append(f'<p style="text-align:center;margin:0 0 16px"><img src="{tactical_image_paths["tactical_ppda"]}" alt="PPDA对比" style="width:100%"></p>')
+        if tactical_image_paths.get("tactical_ppda_timeline"):
+            H.append(f'<p style="text-align:center;margin:10px 0 4px;font-size:12px;color:#95a5a6">▼ 压迫强度随时间变化</p>')
+            H.append(f'<p style="text-align:center;margin:0 0 16px"><img src="{tactical_image_paths["tactical_ppda_timeline"]}" alt="PPDA时间曲线" style="width:100%"></p>')
+
+    # ── 双方压迫分析板块 ──
+    if tactical_image_paths.get("pressing_effectiveness") or tactical_image_paths.get("pressing_efficiency"):
+        H.append(f'<h2 style="color:{GREEN};font-size:22px;border-bottom:2px solid {GREEN};padding-bottom:8px;margin:28px 0 14px">双方压迫分析</h2>')
+
+        # 压迫叙事文字
+        pressing_sections = _parse_narrative_sections(pressing_narrative)
+        pressing_order = ["压迫布局", "压迫回报", "压迫代价"]
+        for sec_title in pressing_order:
+            sec_body = pressing_sections.get(sec_title, "")
+            if sec_body:
+                border_c = GREEN if sec_title == "压迫布局" else (BLUE if sec_title == "压迫回报" else RED)
+                H.append(f'<div class="insight-box" style="border-left-color:{border_c}">')
+                H.append(f'<h4 style="color:{border_c}">{sec_title}</h4><p>{sec_body}</p></div>')
+
+        # 压迫总结
+        pressing_summary = pressing_sections.get("压迫总结", "")
+        if pressing_summary:
+            H.append(f'<div class="insight-box gold" style="margin-bottom:14px"><p style="font-size:14px;font-weight:bold;margin:0">{pressing_summary}</p></div>')
+
+        if tactical_image_paths.get("pressing_effectiveness"):
+            H.append(f'<p style="text-align:center;margin:10px 0 4px;font-size:12px;color:#95a5a6">▼ 压迫效果图：上图为 PPDA 压迫强度曲线与进球时刻，中图为逐段 xG 柱状，下图为射正/射偏堆叠柱</p>')
+            H.append(f'<p style="text-align:center;margin:0 0 16px"><img src="{tactical_image_paths["pressing_effectiveness"]}" alt="压迫效果" style="width:100%"></p>')
+        if tactical_image_paths.get("pressing_efficiency"):
+            H.append(f'<p style="text-align:center;margin:10px 0 4px;font-size:12px;color:#95a5a6">▼ 压迫效率图：上图为 PPDA 压迫强度曲线与效率比，中图为抢断+拦截堆叠柱，下图为犯规次数</p>')
+            H.append(f'<p style="text-align:center;margin:0 0 16px"><img src="{tactical_image_paths["pressing_efficiency"]}" alt="压迫效率" style="width:100%"></p>')
 
     conclusion = tac_sections.get("战术定论", "")
     if conclusion:
