@@ -23,22 +23,22 @@ def plot_momentum_curve_v3(
     """Plot possession% and attacking trends from actual trends data."""
 
     trends = raw.trends or {}
-    home_id = raw.home_team.id
-    away_id = raw.away_team.id
+    home_id = str(raw.home_team.id)
+    away_id = str(raw.away_team.id)
     home_name = raw.home_team.name
     away_name = raw.away_team.name
 
     # Extract possession trends
-    home_poss = _get_trend_series(trends, home_id, 45)  # possession type_id=45
-    away_poss = _get_trend_series(trends, away_id, 45)
+    home_poss = _get_trend_series(trends, home_id, "45")  # possession type_id=45
+    away_poss = _get_trend_series(trends, away_id, "45")
 
     # Extract attack trends
-    home_att = _get_trend_series(trends, home_id, 43)  # attacks type_id=43
-    away_att = _get_trend_series(trends, away_id, 43)
+    home_att = _get_trend_series(trends, home_id, "43")  # attacks type_id=43
+    away_att = _get_trend_series(trends, away_id, "43")
 
     # Extract shots trends
-    home_shots = _get_trend_series(trends, home_id, 42)
-    away_shots = _get_trend_series(trends, away_id, 42)
+    home_shots = _get_trend_series(trends, home_id, "42")
+    away_shots = _get_trend_series(trends, away_id, "42")
 
     fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
     fig.patch.set_facecolor("#1a1a2e")

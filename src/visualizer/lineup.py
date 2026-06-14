@@ -146,13 +146,13 @@ def generate_lineup_html(raw: RawMatchData) -> str:
     # ═══ CSS ═══
     stripe_dark = "#0d5e1a"
     stripe_light = "#0f6e20"
-    STRIPE_H = 38  # px per stripe
+    STRIPE_H = 31  # px per stripe
     PEN_H = 80     # penalty area height
     GOAL_H = 32    # goal area height
     ARC_W = 90     # penalty arc width
     ARC_H = 40     # penalty arc height
     PITCH_W = 480
-    PITCH_H = 780  # overall pitch height (increased for 5-row formations)
+    PITCH_H = 640  # overall pitch height (increased for 5-row formations)
     MID_CIRCLE = 110  # center circle diameter
     css = f"""
 <style>
@@ -393,7 +393,7 @@ def generate_lineup_html(raw: RawMatchData) -> str:
 .pitch-half {{
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 6px;
     flex: 1;
     pointer-events: auto;
 }}
@@ -403,7 +403,7 @@ def generate_lineup_html(raw: RawMatchData) -> str:
 .pitch-row {{
     display: flex;
     justify-content: center;
-    gap: 12px;
+    gap: 14px;
     width: 100%;
 }}
 .pitch-row .player-card {{
@@ -411,12 +411,12 @@ def generate_lineup_html(raw: RawMatchData) -> str:
     flex-direction: column;
     align-items: center;
     gap: 1px;
-    width: 44px;
+    width: 50px;
     text-align: center;
 }}
 .player-photo {{
-    width: 34px;
-    height: 34px;
+    width: 38px;
+    height: 38px;
     border-radius: 50%;
     object-fit: cover;
     border: 2px solid;
@@ -434,7 +434,7 @@ def generate_lineup_html(raw: RawMatchData) -> str:
     font-size: 8px;
     color: rgba(255,255,255,0.9);
     line-height: 1.2;
-    max-width: 46px;
+    max-width: 52px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -699,9 +699,9 @@ def plot_lineup(raw: RawMatchData, output_path: str, dpi: int = 150) -> str:
     home_starters = [p for p in raw.home_players if not p.is_substitute]
     sub_events = [e for e in raw.events if e.event_type == "subst"]
 
-    fig = plt.figure(figsize=(24, 14))
+    fig = plt.figure(figsize=(20, 13))
     fig.patch.set_facecolor("#1a1a2e")
-    ax = fig.add_axes([0.04, 0.08, 0.76, 0.84])
+    ax = fig.add_axes([0.02, 0.06, 0.84, 0.88])
 
     PX, PY = 105.0, 68.0
     ax.set_xlim(-3, PX + 3)
@@ -765,7 +765,7 @@ def plot_lineup(raw: RawMatchData, output_path: str, dpi: int = 150) -> str:
     away_starters_list = [p for p in raw.away_players if not p.is_substitute]
     away_pos = _compute_pos(away_starters_list, False)
 
-    PHOTO_SZ = 5.0
+    PHOTO_SZ = 6.0
     photo_cache = {}
 
     def _load_photo(p):

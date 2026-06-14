@@ -652,8 +652,8 @@ def _parse_period_scores(scores: list[dict]) -> list[PeriodScore]:
 def _parse_trends(trends_raw: list[dict]) -> dict:
     parsed = {}
     for t in trends_raw:
-        participant_id = t.get("participant_id", 0)
-        type_id = t.get("type_id", 0)
+        participant_id = str(t.get("participant_id", 0))
+        type_id = str(t.get("type_id", 0))
         period_id = t.get("period_id", 0)
         minute = t.get("minute", 0)
         value = _safe_float(t.get("value", 0))
