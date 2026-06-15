@@ -31,6 +31,7 @@ def build_tactical_system_and_user(
     pen_home: int = 0,
     pen_away: int = 0,
     stage_name: str = "",
+    match_overview: str = "",
 ) -> tuple[str, str]:
     if loader is None:
         loader = PromptLoader()
@@ -197,6 +198,7 @@ def build_tactical_system_and_user(
 
     return loader.render("tactical",
                          match_context=match_context,
+                         match_overview=match_overview,
                          home_name=home_name, away_name=away_name,
                          score_home=score_home, score_away=score_away,
                          dim_summary="\n".join(dim_lines),

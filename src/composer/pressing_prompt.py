@@ -21,6 +21,7 @@ def build_pressing_prompt(
     score_home: int,
     score_away: int,
     loader: PromptLoader | None = None,
+    match_overview: str = "",
 ) -> tuple[str, str]:
     """返回 (system_prompt, user_prompt)。"""
     if loader is None:
@@ -111,6 +112,8 @@ def build_pressing_prompt(
         kwargs["goal_text"] = "\n".join(goal_lines)
     else:
         kwargs["goal_text"] = "  本场无进球"
+
+    kwargs["match_overview"] = match_overview
 
     return loader.render("pressing", **kwargs)
 

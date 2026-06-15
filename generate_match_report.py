@@ -100,6 +100,72 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
     tactical_data = compute_tactical_analysis(raw)
     logger.info(f"  风格碰撞: {tactical_data['coaching']['style_clash']}")
 
+    # ── 1.5 比赛过程概述 (LLM v3: web 新闻 + 真实数据) ──
+    match_overview = ""
+    match_overview_sys = ""
+    match_overview_user = ""
+    stage_name = (raw.stage_info or {}).get("name", "")
+    try:
+        from src.composer.match_overview_prompt import build_match_overview_prompt
+        from src.generator.llm_client import LLMClient
+        from fetch_match_context import fetch_match_context as fetch_web_context, save_context_to_dir
+
+        llm = LLMClient(config["llm"])
+
+        # 构建比赛信息
+        stage_year = ""
+        start_date = (raw.stage_info or {}).get("starting_at", "")
+        if start_date:
+            stage_year = start_date[:4]
+        ov_ctx_lines = []
+        if stage_year and stage_name:
+            ov_ctx_lines.append(f"赛事：{stage_year}年世界杯 {stage_name}")
+        elif stage_name:
+            ov_ctx_lines.append(f"赛事：{stage_name}")
+        ov_ctx_lines.append(f"对阵：{home_name} vs {away_name}")
+        if has_penalties:
+            ov_ctx_lines.append(f"最终比分：{total_home}-{total_away}（常规 {total_home-pen_home}-{total_away-pen_away}，点球 {pen_home}-{pen_away}）")
+        else:
+            ov_ctx_lines.append(f"比分：{home_name} {total_home}-{total_away} {away_name}")
+        match_ctx_str = "\n".join(ov_ctx_lines)
+
+        # 构建关键事件时间线
+        key_ev_lines = []
+        for ev in raw.events:
+            if ev.event_type in ("Goal", "Card") and ev.detail not in ("pen_shootout_goal", "pen_shootout_miss"):
+                icon = "进球" if ev.event_type == "Goal" else "黄牌"
+                desc = f"{icon} {ev.time_elapsed}' {ev.player_name or ''}"
+                if ev.event_type == "Goal" and ev.assist_name:
+                    desc += f"（助攻：{ev.assist_name}）"
+                key_ev_lines.append(desc)
+        key_ev_str = "\n".join(key_ev_lines[:30])
+
+        # Step A1.5: web 抓取比赛战报
+        web_ctx = fetch_web_context(home_name, away_name)
+        news_text = web_ctx.text if web_ctx.success else ""
+        if web_ctx.success:
+            web_dir = output_dir / "web_context"
+            save_context_to_dir({"match": web_ctx}, web_dir,
+                               match_id=raw.match_id, home=home_name, away=away_name)
+
+        ov_sys, ov_user = build_match_overview_prompt(
+            match_context=match_ctx_str,
+            key_events_text=key_ev_str,
+            news_text=news_text[:3000],  # 截断避免 token 过长
+        )
+        match_overview_sys = ov_sys
+        match_overview_user = ov_user
+        logger.info("调用 LLM 生成比赛过程概述 (v3: web新闻+数据)...")
+        for ov_attempt in range(3):
+            match_overview = llm.generate(ov_sys, ov_user, max_tokens=800)
+            if match_overview:
+                break
+            if ov_attempt < 2:
+                logger.warning(f"  概述返回空内容，重试 {ov_attempt + 1}/2...")
+        logger.info(f"  概述长度: {len(match_overview)} 字符")
+    except Exception as e:
+        logger.warning(f"比赛过程概述 LLM 跳过: {e}")
+
     # ── 2. LLM 战术叙事 ──
     tactical_narrative = ""
     one_liner = ""
@@ -108,11 +174,11 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
         from src.generator.llm_client import LLMClient
 
         llm = LLMClient(config["llm"])
-        stage_name = (raw.stage_info or {}).get("name", "")
         tactical_system, tactical_user_prompt = build_tactical_system_and_user(
             tactical_data, home_name, away_name,
             total_home, total_away,
             pen_home=pen_home, pen_away=pen_away, stage_name=stage_name,
+            match_overview=match_overview,
         )
         logger.info("调用 LLM 生成战术叙事...")
         tactical_narrative = llm.generate(tactical_system, tactical_user_prompt)
@@ -218,6 +284,7 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
                 goal_events,
                 total_home, total_away,
                 loader=pl,
+                match_overview=match_overview,
             )
             logger.info("调用 LLM 生成压迫分析叙事...")
             pressing_narrative = llm.generate(pressing_system, pressing_user)
@@ -249,10 +316,265 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
     except Exception as e:
         logger.warning(f"阵容图跳过: {e}")
 
+    # ── 环节一：文章取名 ──
+    article_titles = []
+    naming_text = ""
+    try:
+        from src.composer.article_naming_prompt import build_article_naming_prompt, parse_article_titles
+        from src.generator.llm_client import LLMClient
+
+        llm = LLMClient(config["llm"])
+        # Build match context
+        ctx_lines = []
+        if stage_name:
+            ctx_lines.append(f"赛事：{stage_name}")
+        ctx_lines.append(f"对阵：{home_name} vs {away_name}")
+        if has_penalties:
+            reg_home = total_home - pen_home
+            reg_away = total_away - pen_away
+            ctx_lines.append(f"最终比分：{total_home}-{total_away}（常规+加时 {reg_home}-{reg_away}，点球 {pen_home}-{pen_away}）")
+        else:
+            ctx_lines.append(f"比分：{home_name} {total_home}-{total_away} {away_name}")
+        match_ctx = "\n".join(ctx_lines)
+
+        # Key events text
+        key_ev_lines = []
+        for ev in raw.events:
+            if ev.event_type in ("Goal", "Card") and ev.detail not in ("pen_shootout_goal", "pen_shootout_miss"):
+                icon = "⚽" if ev.event_type == "Goal" else "🟨"
+                desc = f"{icon} {ev.time_elapsed}' {ev.player_name or ''}"
+                if ev.event_type == "Goal" and ev.assist_name:
+                    desc += f"（助攻：{ev.assist_name}）"
+                key_ev_lines.append(desc)
+        key_events_text = "\n".join(key_ev_lines[:30])
+
+        naming_sys, naming_user = build_article_naming_prompt(
+            match_context=match_ctx,
+            tactical_summary=tactical_narrative[:2000],
+            pressing_summary=pressing_narrative[:1500] if pressing_narrative else tactical_narrative[:1500],
+            key_events=key_events_text,
+            match_overview=match_overview,
+        )
+        logger.info("调用 LLM 生成文章标题...")
+        naming_text = llm.generate(naming_sys, naming_user, max_tokens=2048)
+        article_titles = parse_article_titles(naming_text)
+        # Fallback: if structured parser returns 0, extract any 《title》 patterns
+        if not article_titles and naming_text:
+            fallback = _fallback_parse_titles(naming_text)
+            if fallback:
+                article_titles = fallback
+                logger.info(f"  使用 fallback 解析器恢复 {len(article_titles)} 个标题")
+        logger.info(f"  生成 {len(article_titles)} 个标题")
+
+        # Save article titles JSON
+        titles_data = {
+            "match_id": raw.match_id,
+            "match_context": match_ctx,
+            "titles": article_titles,
+        }
+        titles_path = output_dir / "article_titles.json"
+        with open(titles_path, "w", encoding="utf-8") as f:
+            json.dump(titles_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"文章取名跳过: {e}")
+
+    # ── 环节二：球员人物特稿推荐 ──
+    player_features_md = ""
+    try:
+        from src.composer.player_feature_prompt import build_player_feature_prompt
+        from src.engine.player_feature_selector import select_candidates
+        from src.generator.llm_client import LLMClient
+
+        llm = LLMClient(config["llm"])
+
+        # Build players_data
+        players_data = []
+        for p in raw.home_players:
+            if p.minutes_played <= 0:
+                continue
+            players_data.append({
+                "name": p.name, "team": home_name,
+                "position": p.position, "minutes": p.minutes_played,
+                "rating": p.rating or 0, "goals": p.goals, "assists": p.assists,
+                "shots_total": p.shots_total, "shots_on": p.shots_on,
+                "xg": p.xg, "xgot": p.xgot,
+                "passes_total": p.passes_total, "passes_accuracy": p.passes_accuracy,
+                "passes_key": p.passes_key, "passes_final_third": p.passes_final_third,
+                "tackles_total": p.tackles_total, "tackles_interceptions": p.tackles_interceptions,
+                "duels_won": p.duels_won, "duels_total": p.duels_total,
+                "dribbles_success": p.dribbles_success, "dribbles_attempts": p.dribbles_attempts,
+                "saves": p.saves, "saves_inside_box": p.saves_inside_box,
+                "error_lead_to_goal": p.error_lead_to_goal,
+                "photo_url": p.photo_url, "man_of_match": p.man_of_match,
+                "fouls_drawn": p.fouls_drawn, "fouls_committed": p.fouls_committed,
+                "ball_recoveries": p.ball_recoveries,
+                "yellowcards": p.yellowcards, "redcards": p.redcards,
+                "is_substitute": p.is_substitute,
+            })
+        for p in raw.away_players:
+            if p.minutes_played <= 0:
+                continue
+            players_data.append({
+                "name": p.name, "team": away_name,
+                "position": p.position, "minutes": p.minutes_played,
+                "rating": p.rating or 0, "goals": p.goals, "assists": p.assists,
+                "shots_total": p.shots_total, "shots_on": p.shots_on,
+                "xg": p.xg, "xgot": p.xgot,
+                "passes_total": p.passes_total, "passes_accuracy": p.passes_accuracy,
+                "passes_key": p.passes_key, "passes_final_third": p.passes_final_third,
+                "tackles_total": p.tackles_total, "tackles_interceptions": p.tackles_interceptions,
+                "duels_won": p.duels_won, "duels_total": p.duels_total,
+                "dribbles_success": p.dribbles_success, "dribbles_attempts": p.dribbles_attempts,
+                "saves": p.saves, "saves_inside_box": p.saves_inside_box,
+                "error_lead_to_goal": p.error_lead_to_goal,
+                "photo_url": p.photo_url, "man_of_match": p.man_of_match,
+                "fouls_drawn": p.fouls_drawn, "fouls_committed": p.fouls_committed,
+                "ball_recoveries": p.ball_recoveries,
+                "yellowcards": p.yellowcards, "redcards": p.redcards,
+                "is_substitute": p.is_substitute,
+            })
+
+        # Build events list
+        raw_events_list = []
+        for ev in raw.events:
+            raw_events_list.append({
+                "player_name": ev.player_name,
+                "event_type": ev.event_type,
+                "detail": ev.detail,
+                "minute": ev.time_elapsed,
+                "team_id": ev.team_id,
+                "assist_name": ev.assist_name,
+            })
+
+        # Detect key events
+        from src.engine.key_events import detect_key_events
+        goal_events_raw = [e for e in raw_events_list if e["event_type"] in ("Goal", "goal")]
+        sub_events_raw = [e for e in raw_events_list if e["event_type"] in ("subst", "substitution")]
+        key_events_result = detect_key_events(
+            goal_events_raw, sub_events_raw,
+            raw.home_team.id, raw.away_team.id,
+            total_home, total_away,
+        )
+
+        # Run player detector
+        from src.engine.player_insights import run_all_detectors
+        # Build lineups from raw data
+        lineups_list = []
+        for p in raw.home_players:
+            lineups_list.append({
+                "player_name": p.name, "team_id": raw.home_team.id,
+                "minutes_played": p.minutes_played, "position": p.position,
+                "rating": p.rating or 0, "goals": p.goals, "assists": p.assists,
+                "shots_on_target": p.shots_on, "shots_total": p.shots_total,
+                "passes_accuracy": p.passes_accuracy, "passes_total": p.passes_total,
+                "xg": p.xg, "xgot": p.xgot,
+                "dribbles_success": p.dribbles_success, "dribbles_attempts": p.dribbles_attempts,
+                "duels_won": p.duels_won, "duels_total": p.duels_total,
+                "tackles_total": p.tackles_total, "interceptions": p.tackles_interceptions,
+                "passes_key": p.passes_key, "passes_final_third": p.passes_final_third,
+                "saves": p.saves, "saves_inside_box": p.saves_inside_box,
+                "fouls_committed": p.fouls_committed, "fouls_drawn": p.fouls_drawn,
+                "yellowcards": p.yellowcards, "redcards": p.redcards,
+            })
+        for p in raw.away_players:
+            lineups_list.append({
+                "player_name": p.name, "team_id": raw.away_team.id,
+                "minutes_played": p.minutes_played, "position": p.position,
+                "rating": p.rating or 0, "goals": p.goals, "assists": p.assists,
+                "shots_on_target": p.shots_on, "shots_total": p.shots_total,
+                "passes_accuracy": p.passes_accuracy, "passes_total": p.passes_total,
+                "xg": p.xg, "xgot": p.xgot,
+                "dribbles_success": p.dribbles_success, "dribbles_attempts": p.dribbles_attempts,
+                "duels_won": p.duels_won, "duels_total": p.duels_total,
+                "tackles_total": p.tackles_total, "interceptions": p.tackles_interceptions,
+                "passes_key": p.passes_key, "passes_final_third": p.passes_final_third,
+                "saves": p.saves, "saves_inside_box": p.saves_inside_box,
+                "fouls_committed": p.fouls_committed, "fouls_drawn": p.fouls_drawn,
+                "yellowcards": p.yellowcards, "redcards": p.redcards,
+            })
+
+        events_parsed = []
+        for ev in raw.events:
+            events_parsed.append({
+                "player_name": ev.player_name,
+                "event_type": ev.event_type,
+                "minute": ev.time_elapsed,
+                "team_id": ev.team_id,
+                "goal_type": ev.detail,
+                "assist_name": ev.assist_name,
+            })
+        max_min = max(p.minutes_played for p in raw.home_players + raw.away_players if p.minutes_played > 0)
+        end_min = max(90, max_min) if max_min > 0 else 90
+
+        detector_results = run_all_detectors(
+            lineups_list, raw.home_team.id, raw.away_team.id,
+            total_home, total_away,
+            events_parsed, end_min,
+            home_name=home_name, away_name=away_name,
+        )
+
+        # Build player summaries
+        player_summaries = {}
+        for p in raw.home_players + raw.away_players:
+            if p.minutes_played > 0:
+                summary_parts = []
+                if p.goals:
+                    summary_parts.append(f"打入{p.goals}球")
+                if p.assists:
+                    summary_parts.append(f"助攻{p.assists}次")
+                if p.shots_on:
+                    summary_parts.append(f"射正{p.shots_on}次")
+                if p.passes_key:
+                    summary_parts.append(f"关键传球{p.passes_key}次")
+                if p.saves and p.saves >= 3:
+                    summary_parts.append(f"完成{p.saves}次扑救")
+                player_summaries[p.name] = "，".join(summary_parts) if summary_parts else f"出场{p.minutes_played}分钟，评分{p.rating or '-'}"
+
+        # Select candidates
+        candidates = select_candidates(
+            players_data, detector_results, key_events_result,
+            raw_events_list, player_summaries, max_candidates=8,
+        )
+        logger.info(f"  球员候选: {len(candidates)} 人")
+
+        # Build LLM prompt
+        stage_text = f"赛事：{stage_name}" if stage_name else "赛事信息暂缺"
+        feature_sys, feature_user = build_player_feature_prompt(
+            match_context=match_ctx,
+            stage_info=stage_text,
+            tactical_summary=tactical_narrative[:1500],
+            pressing_summary=pressing_narrative[:1000] if pressing_narrative else tactical_narrative[:1000],
+            candidates=candidates,
+            match_overview=match_overview,
+        )
+        logger.info("调用 LLM 生成球员特稿推荐...")
+        player_features_md = llm.generate(feature_sys, feature_user, max_tokens=4800)
+        logger.info(f"  球员特稿长度: {len(player_features_md)} 字符")
+
+        # Save player features Markdown
+        features_path = output_dir / "player_features.md"
+        with open(features_path, "w", encoding="utf-8") as f:
+            f.write(player_features_md)
+    except Exception as e:
+        logger.warning(f"球员特稿推荐跳过: {e}")
+        import traceback
+        traceback.print_exc()
+
     # ── 6. 保存 JSON ──
     json_path = output_dir / "tactical_analysis.json"
+    json_output = dict(tactical_data) if isinstance(tactical_data, dict) else {"_data": str(tactical_data)}
+    json_output["_match_overview"] = {
+        "system_prompt": match_overview_sys,
+        "user_prompt": match_overview_user,
+        "response": match_overview,
+        "response_length": len(match_overview) if match_overview else 0,
+    }
+    json_output["_article_naming"] = {
+        "raw_response": naming_text,
+        "titles": article_titles,
+    }
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(tactical_data, f, ensure_ascii=False, indent=2, default=str)
+        json.dump(json_output, f, ensure_ascii=False, indent=2, default=str)
     logger.info(f"  战术 JSON: {json_path}")
 
     # ── 7. 保存 Excel ──
@@ -261,6 +583,17 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
         xlsx_path = output_dir / "tactical_analysis.xlsx"
         _save_tactical_excel(tactical_data, tactical_narrative,
                              home_name, away_name, str(xlsx_path))
+        # Append match_overview sheet
+        if match_overview and match_overview_sys:
+            import openpyxl
+            wb = openpyxl.load_workbook(str(xlsx_path))
+            ws = wb.create_sheet("比赛过程概述")
+            ws.column_dimensions['A'].width = 25
+            ws.column_dimensions['B'].width = 80
+            ws['A1'] = 'System Prompt'; ws['B1'] = match_overview_sys
+            ws['A2'] = 'User Prompt'; ws['B2'] = match_overview_user
+            ws['A3'] = 'LLM Response'; ws['B3'] = match_overview
+            wb.save(str(xlsx_path))
         logger.info(f"  战术 Excel: {xlsx_path}")
     except Exception as e:
         logger.warning(f"战术 Excel 跳过: {e}")
@@ -272,10 +605,32 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
         timeline_html, timeline_png_rel, one_liner, lineup_html, raw,
         total_home, total_away, pen_home, pen_away, has_penalties,
         pressing_narrative=pressing_narrative,
+        article_titles=article_titles,
+        player_features_md=player_features_md,
     )
     logger.info(f"  战术 HTML: {output_dir / 'tactical_report.html'}")
 
     return tactical_data, tactical_narrative
+
+
+def _fallback_parse_titles(text: str) -> list[dict]:
+    """Fallback 解析器：不要求分角标题，直接从文本中提取所有《标题》— 理由 行。"""
+    titles = []
+    for line in text.strip().split("\n"):
+        line = line.strip()
+        if "《" not in line or "》" not in line:
+            continue
+        try:
+            title_part = line.split("《")[1].split("》")[0].strip()
+            reason = ""
+            if "—" in line:
+                reason = line.split("—", 1)[1].strip()
+            elif "--" in line:
+                reason = line.split("--", 1)[1].strip()
+            titles.append({"angle": "自由角度", "title": title_part, "reason": reason})
+        except Exception:
+            continue
+    return titles[:10]
 
 
 def _build_tactical_html(
@@ -287,6 +642,8 @@ def _build_tactical_html(
     total_home: int, total_away: int,
     pen_home: int, pen_away: int, has_penalties: bool,
     pressing_narrative: str = "",
+    article_titles: list = None,
+    player_features_md: str = "",
 ):
     """组装独立战术分析 HTML 报告 (从 run_tactical_only.py 提取)。"""
     tac_sections = _parse_narrative_sections(tactical_narrative)
@@ -439,6 +796,38 @@ def _build_tactical_html(
     if conclusion:
         H.append(f'<div class="insight-box gold"><p style="font-size:16px;font-weight:bold;margin:0">{conclusion}</p></div>')
 
+    # ── 文章标题推荐板块 ──
+    if article_titles:
+        H.append(f'<h2 style="color:{GREEN};font-size:22px;border-bottom:2px solid {GREEN};padding-bottom:8px;margin:28px 0 14px">🖋️ 文章标题推荐</h2>')
+        # Group by angle
+        angle_colors = {
+            "战术向": "#2ecc71",
+            "人物向": "#e67e22",
+            "数据向": "#3498db",
+            "自由角度": "#95a5a6",
+        }
+        H.append(f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin:12px 0">')
+        for t in article_titles:
+            angle = t.get("angle", "自由角度")
+            border_c = angle_colors.get(angle, "#95a5a6")
+            H.append(f'<div style="background:rgba(46,204,113,0.06);border:1px solid {border_c};border-radius:8px;padding:12px 14px">')
+            H.append(f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">')
+            H.append(f'<span style="background:{border_c};color:#fff;font-size:10px;font-weight:bold;padding:2px 6px;border-radius:3px">{angle}</span>')
+            H.append(f'</div>')
+            H.append(f'<div style="font-size:15px;font-weight:700;color:#fff;line-height:1.4;margin-bottom:4px">《{t.get("title", "")}》</div>')
+            reason = t.get("reason", "")
+            if reason:
+                H.append(f'<div style="font-size:12px;color:#8ab4d6">{reason}</div>')
+            H.append(f'</div>')
+        H.append(f'</div>')
+
+    # ── 球员人物特稿推荐板块 ──
+    if player_features_md:
+        H.append(f'<h2 style="color:{GREEN};font-size:22px;border-bottom:2px solid {GREEN};padding-bottom:8px;margin:28px 0 14px">📰 球员人物特稿推荐</h2>')
+        # Parse markdown into structured HTML
+        features_html = _md_to_player_features_html(player_features_md)
+        H.append(features_html)
+
     if timeline_html:
         H.append(f'<h2 style="color:#e0e8f0;font-size:22px;border-bottom:2px solid {GREEN};padding-bottom:8px;margin:28px 0 14px">全场事件时间轴</h2>')
         H.append(timeline_html)
@@ -459,6 +848,91 @@ def _parse_narrative_sections(text: str) -> dict:
     for m in re.finditer(r"【(.+?)】\s*\n(.*?)(?=\n【|\Z)", text, re.DOTALL):
         sections[m.group(1).strip()] = m.group(2).strip()
     return sections
+
+
+def _md_to_player_features_html(md: str) -> str:
+    """Parse player features markdown into collapsible HTML cards."""
+    parts = []
+    # Split by ### player entries
+    player_blocks = re.split(r'\n### ', md)
+    overview = ""
+    if player_blocks and not player_blocks[0].startswith('###'):
+        overview = player_blocks[0]
+        player_blocks = player_blocks[1:]
+
+    if overview:
+        # Render overview text
+        for line in overview.strip().split('\n'):
+            line = line.strip()
+            if line.startswith('# '):
+                parts.append(f'<h3 style="color:#e0e8f0;margin:10px 0">{line[2:]}</h3>')
+            elif line.startswith('## '):
+                parts.append(f'<h4 style="color:#c0d6e4;margin:8px 0">{line[3:]}</h4>')
+            elif line:
+                parts.append(f'<p style="font-size:14px;line-height:1.9;color:#d0d8e0;margin:4px 0">{line}</p>')
+
+    for block in player_blocks:
+        lines = block.strip().split('\n')
+        header = lines[0].strip()
+        # Parse header: "Player Name | Team | Position | ⭐..."
+        header_parts = [h.strip() for h in header.split('|')]
+        player_name = header_parts[0] if header_parts else ""
+        extra = " | ".join(header_parts[1:]) if len(header_parts) > 1 else ""
+
+        card_id = f"pf_{abs(hash(player_name)) % 100000}"
+
+        parts.append(f'<div style="background:#162a38;border:1px solid #1e3a4d;border-radius:10px;margin:16px 0;overflow:hidden">')
+        # Header
+        parts.append(f'<div onclick="document.getElementById(\'{card_id}\').style.display='
+                     f'(\'none\'==document.getElementById(\'{card_id}\').style.display)?\'\':\'none\'" '
+                     f'style="cursor:pointer;padding:14px 18px;display:flex;align-items:center;gap:10px;'
+                     f'background:linear-gradient(135deg,#1a2a3a,#162a38)">')
+        parts.append(f'<span style="color:#e0e8f0;font-size:16px;font-weight:bold;flex:1">{player_name}</span>')
+        if extra:
+            parts.append(f'<span style="color:#8ab4d6;font-size:13px">{extra}</span>')
+        parts.append(f'<span style="color:#4a6a80;font-size:12px">▼</span>')
+        parts.append(f'</div>')
+
+        # Collapsible detail
+        parts.append(f'<div id="{card_id}" style="display:none;padding:14px 18px;border-top:1px solid #1e3a4d">')
+
+        # Parse inner markdown
+        inner_lines = lines[1:]
+        in_outline = False
+        outline_lines = []
+        for line in inner_lines:
+            line_stripped = line.strip()
+            if line_stripped.startswith('**文章看点**'):
+                parts.append(f'<p style="font-size:13px;color:#8ab4d6;margin:6px 0">'
+                             f'<strong>文章看点</strong>：{line_stripped[len("**文章看点**"):].strip("：: ")}</p>')
+            elif line_stripped.startswith('**故事线**'):
+                parts.append(f'<p style="font-size:13px;color:#8ab4d6;margin:6px 0">'
+                             f'<strong>故事线</strong>：{line_stripped[len("**故事线**"):].strip("：: ")}</p>')
+            elif line_stripped.startswith('**文章标题备选**'):
+                parts.append(f'<p style="font-size:13px;color:#f1c40f;margin:10px 0 4px"><strong>文章标题备选</strong>：</p>')
+            elif line_stripped.startswith('**文章大纲**'):
+                parts.append(f'<p style="font-size:13px;color:#3498db;margin:10px 0 4px"><strong>文章大纲</strong>：</p>')
+                in_outline = True
+            elif line_stripped.startswith('**推荐理由**'):
+                parts.append(f'<p style="font-size:12px;color:#7a9ab4;margin:6px 0">'
+                             f'{line_stripped}</p>')
+            elif line_stripped.startswith('1. ') or line_stripped.startswith('2. ') or \
+                 line_stripped.startswith('3. ') or line_stripped.startswith('4. ') or \
+                 line_stripped.startswith('5. '):
+                parts.append(f'<p style="font-size:12px;color:#c0d6e4;margin:2px 0 2px 12px">{line_stripped}</p>')
+            elif line_stripped.startswith('- '):
+                if in_outline:
+                    parts.append(f'<p style="font-size:12px;color:#c0d6e4;margin:2px 0 2px 12px">{line_stripped}</p>')
+                else:
+                    parts.append(f'<p style="font-size:12px;color:#c0d6e4;margin:2px 0 2px 12px">{line_stripped}</p>')
+            elif line_stripped == '---':
+                parts.append(f'<hr style="border-color:#1e3a4d;margin:10px 0">')
+            elif line_stripped and not line_stripped.startswith('#'):
+                parts.append(f'<p style="font-size:13px;color:#d0d8e0;line-height:1.8;margin:4px 0">{line_stripped}</p>')
+
+        parts.append(f'</div></div>')
+
+    return '\n'.join(parts)
 
 
 # ═══════════════════════════════════════════════════════════════

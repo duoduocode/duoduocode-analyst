@@ -25,6 +25,11 @@ user: |
   【比赛信息】
   {{ match_context }}
 
+  {% if match_overview %}
+  【比赛过程概述】
+  {{ match_overview }}
+  {% endif %}
+
   【压迫相关数据 — 六窗口汇总表】
 
   以下是双方在六个 15 分钟窗口内的压迫相关数据，按窗口排列。
