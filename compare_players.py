@@ -597,9 +597,11 @@ def main():
     heatmap_a = _load_base64_image(args.match_id, args.player_a, "heatmap.png")
     pass_a = _load_base64_image(args.match_id, args.player_a, "pass_chart.png")
     dribble_a = _load_base64_image(args.match_id, args.player_a, "dribble_chart.png")
+    shot_a = _load_base64_image(args.match_id, args.player_a, "shot_chart.png")
     heatmap_b = _load_base64_image(args.match_id, args.player_b, "heatmap.png")
     pass_b = _load_base64_image(args.match_id, args.player_b, "pass_chart.png")
     dribble_b = _load_base64_image(args.match_id, args.player_b, "dribble_chart.png")
+    shot_b = _load_base64_image(args.match_id, args.player_b, "shot_chart.png")
 
     # 构建对比数据
     player_a_data = build_player_comparison_data(
@@ -607,12 +609,14 @@ def main():
         args.player_a, a_team, all_players,
         run_km=run_a, carry_km=carry_a,
         heatmap_b64=heatmap_a, pass_chart_b64=pass_a, dribble_chart_b64=dribble_a,
+        shot_chart_b64=shot_a,
     )
     player_b_data = build_player_comparison_data(
         b_team_list, detector_results, {args.player_b: key_b},
         args.player_b, b_team, all_players,
         run_km=run_b, carry_km=carry_b,
         heatmap_b64=heatmap_b, pass_chart_b64=pass_b, dribble_chart_b64=dribble_b,
+        shot_chart_b64=shot_b,
     )
 
     if player_a_data is None:

@@ -23,6 +23,7 @@ import math
 import os
 import io
 import base64
+from io import BytesIO
 import unicodedata
 import textwrap
 from typing import Optional
@@ -40,7 +41,7 @@ from src.visualizer import HOME_COLOR, AWAY_COLOR
 BG_COLOR = "#1a1a2e"
 TEXT_COLOR = "#e0e8f0"
 MUTED_COLOR = "#6a7a8a"
-GRID_COLOR = "#2a2a4a"
+GRID_COLOR = "#4a5a7a"   # 雷达图网格（更明显）
 CARD_BG = "#141428"
 TABLE_BORDER = "#2a2a4a"
 
@@ -190,20 +191,17 @@ def plot_player_comparison(
 
     dim_h = max(_dim_table_h(player_a), _dim_table_h(player_b), 2.0)
 
-    # ── 图表区高度评估（快速判断哪些图存在） ──
-    chart_types = [
-        ("heatmap_b64",),
-        ("pass_chart_b64",),
-        ("dribble_chart_b64",),
-    ]
-    chart_rows = sum(1 for (k,) in chart_types
-                     if player_a.get(k) or player_b.get(k))
-    row_h_per = 2.10
-    gap_per = 0.12
-    label_h = 0.25
-    charts_h = chart_rows * (row_h_per + gap_per) - gap_per + label_h if chart_rows else 0.0
-    if charts_h > 0:
-        charts_h += 0.35  # top separator margin (room for sub-title + spacing)
+    # ── 图表区高度评估（2×2 网格, 固定高度, 缺图用占位符） ──
+    grid_cell_w = (info_panel_w - 0.24) / 2   # 每格宽(含0.08间距)
+    grid_cell_h = 1.30                        # 每格高(图片+标签)
+    grid_gap = 0.08                           # 格间间距
+    grid_label_h = 0.28                       # 顶部标题
+    charts_h = grid_label_h + grid_cell_h * 2 + grid_gap + 0.25 if (
+        player_a.get("heatmap_b64") or player_a.get("pass_chart_b64") or
+        player_a.get("dribble_chart_b64") or player_a.get("shot_chart_b64") or
+        player_b.get("heatmap_b64") or player_b.get("pass_chart_b64") or
+        player_b.get("dribble_chart_b64") or player_b.get("shot_chart_b64")
+    ) else 0.0
 
     total_h = header_h + radar_row_h + info_row_h + charts_h + dim_h + footer_h + margin * 2
 
@@ -280,26 +278,27 @@ def plot_player_comparison(
     _draw_player_info_compact(info_ax, player_a, info_left_x0, 0, info_panel_w, info_row_h, HOME_COLOR)
     _draw_player_info_compact(info_ax, player_b, info_right_x0, 0, info_panel_w, info_row_h, AWAY_COLOR)
 
-    # ═══════════════════ 比赛视觉分析（热图/传球/推进） ═══════════════════
+    # ═══════════════════ 球员活动对比（热图/传球/带球/射门） ═══════════════════
     if charts_h > 0:
         charts_y0 = footer_h + dim_h + margin
         charts_ax = fig.add_axes([0, charts_y0 / total_h, 1, charts_h / total_h])
         charts_ax.set_xlim(0, total_w); charts_ax.set_ylim(0, charts_h)
         charts_ax.axis("off"); charts_ax.set_facecolor(BG_COLOR)
-        # Subtle separator line spanning panel area
-        panel_start = info_left_x0
-        panel_end = info_right_x0 + info_panel_w
-        charts_ax.plot([panel_start, panel_end],
-                       [charts_h - 0.08, charts_h - 0.08],
-                       color=TABLE_BORDER, linewidth=0.5, alpha=0.3)
-        _draw_charts_row(fig, charts_ax, player_a, player_b,
-                         info_left_x0, info_right_x0, info_panel_w, total_w,
-                         HOME_COLOR, AWAY_COLOR)
-        # Section label (centered across panels)
+        # Section label
         panel_ctr = (info_left_x0 + info_right_x0 + info_panel_w) / 2
-        charts_ax.text(panel_ctr, charts_h - 0.22, "— 比赛视觉分析 —",
-                       fontsize=9, color=MUTED_COLOR, ha="center", va="bottom",
-                       alpha=0.8)
+        charts_ax.text(panel_ctr, charts_h - 0.18, "— 球员活动对比 —",
+                       fontsize=10, color=MUTED_COLOR, ha="center", va="bottom",
+                       fontweight="bold")
+        # 双方各一个 2×2 网格
+        img_h = grid_cell_h - 0.28   # 图片区高度
+        _draw_charts_2x2(fig, charts_ax, player_a,
+                         info_left_x0 + 0.08, 0.18,
+                         info_panel_w - 0.16, grid_cell_h * 2 + grid_gap,
+                         grid_cell_w, grid_cell_h, img_h, HOME_COLOR)
+        _draw_charts_2x2(fig, charts_ax, player_b,
+                         info_right_x0 + 0.08, 0.18,
+                         info_panel_w - 0.16, grid_cell_h * 2 + grid_gap,
+                         grid_cell_w, grid_cell_h, img_h, AWAY_COLOR)
 
     # ═══════════════════ C1-C5 维度表格 ═══════════════════
     dim_y0 = footer_h + margin
@@ -448,97 +447,60 @@ def _draw_dim_table(ax, player: dict, x0: float, y_top: float, w: float, color: 
         cy -= 0.08
 
 
-def _draw_charts_row(fig, ax, player_a: dict, player_b: dict,
-                     info_left_x0: float, info_right_x0: float,
-                     info_panel_w: float, total_w: float,
-                     home_color: str, away_color: str) -> float:
-    """Draw the 3-row chart comparison area (heatmap / pass_chart / dribble_chart).
-
-    Returns total height used (in inches), or 0.0 if no charts available.
-    """
+def _draw_charts_2x2(fig, ax, player: dict,
+                      x0: float, y0: float, total_w: float, total_h: float,
+                      cell_w: float, cell_h: float, img_h: float, color: str):
+    """绘制单个球员的 2×2 图表网格（热图/传球/带球/射门）, 缺图用占位符。"""
     chart_types = [
-        ("heatmap_b64", "比赛热图"),
+        ("heatmap_b64",  "活动热图"),
         ("pass_chart_b64", "传球分布"),
         ("dribble_chart_b64", "带球推进"),
+        ("shot_chart_b64", "射门表现"),
     ]
-    row_h = 2.10          # height per chart row
-    label_h = 0.25         # label above each row
-    gap = 0.12             # gap between rows
-    chart_w = info_panel_w - 0.20  # chart display width
-    # 图片 display 尺寸 (英寸)：假设原图~290×175，按高度 1.60" contain
-    img_display_h = 1.45
-    img_display_w = chart_w - 0.40
+    gap = 0.06  # columns gap
 
-    # Count how many chart types have data for either player
-    available_rows = []
-    for key, label in chart_types:
-        has_a = player_a.get(key)
-        has_b = player_b.get(key)
-        if has_a or has_b:
-            available_rows.append((key, label, has_a, has_b))
+    positions = [
+        (0, 1, 0), (1, 1, 0),   # 上排: col=0/1, row=1
+        (0, 0, 1), (1, 0, 1),   # 下排: col=0/1, row=0
+    ]
 
-    if not available_rows:
-        return 0.0
+    for (key, label), (col, row, _) in zip(chart_types, positions):
+        cx = x0 + col * (cell_w + gap)
+        cy = y0 + row * (cell_h + gap)
+        b64 = player.get(key)
 
-    total_charts_h = len(available_rows) * (row_h + gap) - gap + label_h
+        # Card background
+        card = mpatches.FancyBboxPatch(
+            (cx, cy), cell_w, cell_h,
+            boxstyle="round,pad=0.04", linewidth=0.6,
+            edgecolor=color if b64 else TABLE_BORDER,
+            facecolor=CARD_BG, alpha=0.5 if b64 else 0.2, zorder=2,
+        )
+        ax.add_patch(card)
 
-    # Y starts from top of the area going downward
-    y_cur = total_charts_h
+        # Label at top of cell
+        ax.text(cx + cell_w / 2, cy + cell_h - 0.12, label,
+                fontsize=6.5, color=MUTED_COLOR if b64 else MUTED_COLOR,
+                ha="center", va="top", fontweight="bold", alpha=0.7 if not b64 else 1.0)
 
-    for key, label, has_a, has_b in available_rows:
-        y_top = y_cur
-        y_bot = y_top - row_h
-
-        # Row label (centered across both panel areas)
-        panel_center_x = (info_left_x0 + info_right_x0 + info_panel_w) / 2
-        ax.text(panel_center_x, y_top - 0.05, label,
-                fontsize=8.5, color=MUTED_COLOR, ha="center", va="bottom",
-                fontweight="bold")
-
-        # Player A chart (left panel)
-        _draw_chart_card(fig, ax, has_a,
-                         info_left_x0 + 0.10, y_bot + 0.18,
-                         img_display_w, img_display_h,
-                         home_color, "暂无数据")
-
-        # Player B chart (right panel)
-        _draw_chart_card(fig, ax, has_b,
-                         info_right_x0 + 0.10, y_bot + 0.18,
-                         img_display_w, img_display_h,
-                         away_color, "暂无数据")
-
-        y_cur = y_bot - gap
-
-    return total_charts_h
-
-
-def _draw_chart_card(fig, ax, b64_data, x: float, y: float, w: float, h: float,
-                     color: str, placeholder: str):
-    """Draw a single chart card with border. b64_data can be None (placeholder)."""
-    # Card background
-    card = mpatches.FancyBboxPatch((x, y), w, h,
-                                    boxstyle="round,pad=0.06", linewidth=0.8,
-                                    edgecolor=color, facecolor=CARD_BG,
-                                    alpha=0.6, zorder=2)
-    ax.add_patch(card)
-
-    if b64_data:
-        try:
-            # Parse base64 data URI
-            header, encoded = b64_data.split(",", 1)
-            img_bytes = base64.b64decode(encoded)
-            import matplotlib.image as mpimg
-            from io import BytesIO
-            img_arr = mpimg.imread(BytesIO(img_bytes))
-            pad = 0.08
-            ax.imshow(img_arr, extent=[x + pad, x + w - pad, y + pad, y + h - pad],
-                      aspect='auto', zorder=3, interpolation='bilinear')
-        except Exception:
-            pass
-    else:
-        ax.text(x + w / 2, y + h / 2, placeholder,
-                fontsize=9, color=MUTED_COLOR, ha="center", va="center",
-                alpha=0.7, fontstyle="italic")
+        if b64:
+            try:
+                header, encoded = b64.split(",", 1)
+                img_bytes = base64.b64decode(encoded)
+                img_arr = plt.imread(BytesIO(img_bytes))
+                pad = 0.05
+                ax.imshow(img_arr,
+                          extent=[cx + pad, cx + cell_w - pad,
+                                  cy + pad + 0.12, cy + cell_h - pad - 0.02],
+                          aspect='auto', zorder=3, interpolation='bilinear')
+            except Exception:
+                ax.text(cx + cell_w / 2, cy + cell_h / 2, "加载失败",
+                        fontsize=7, color=MUTED_COLOR, ha="center", va="center",
+                        alpha=0.6, fontstyle="italic")
+        else:
+            ax.text(cx + cell_w / 2, cy + cell_h / 2 - 0.02, "无数据",
+                    fontsize=7, color=MUTED_COLOR, ha="center", va="center",
+                    alpha=0.5, fontstyle="italic")
 
 
 def _draw_radar(ax, player_a: dict, player_b: dict,
@@ -572,12 +534,12 @@ def _draw_radar(ax, player_a: dict, player_b: dict,
         pts = [(cx + r * math.cos(a), cy + r * math.sin(a)) for a in angles]
         pts.append(pts[0])
         xs, ys = zip(*pts)
-        ax.plot(xs, ys, color=GRID_COLOR, linewidth=0.5, alpha=0.5, zorder=1)
+        ax.plot(xs, ys, color=GRID_COLOR, linewidth=0.7, alpha=0.7, zorder=1)
 
     # 轴线
     for a in angles:
         ax.plot([cx, cx + radius * math.cos(a)], [cy, cy + radius * math.sin(a)],
-                color=GRID_COLOR, linewidth=0.5, alpha=0.4, zorder=1)
+                color=GRID_COLOR, linewidth=0.7, alpha=0.6, zorder=1)
 
     # 球员 A（实线圆点）
     a_pts = [(cx + radius * na[i] * math.cos(angles_closed[i]),
@@ -601,7 +563,7 @@ def _draw_radar(ax, player_a: dict, player_b: dict,
         lr = radius * 1.18
         lx = cx + lr * math.cos(a)
         ly = cy + lr * math.sin(a)
-        ax.text(lx, ly, DIM_LABELS[i], fontsize=9, color=TEXT_COLOR,
+        ax.text(lx, ly, DIM_LABELS[i], fontsize=10.5, color=TEXT_COLOR,
                 ha="center", va="center", fontweight="bold")
 
 
@@ -646,6 +608,7 @@ def build_player_comparison_data(
     heatmap_b64: str = None,
     pass_chart_b64: str = None,
     dribble_chart_b64: str = None,
+    shot_chart_b64: str = None,
 ):
     pd = next((p for p in player_data_list if p.name == player_name), None)
     if pd is None:
@@ -728,6 +691,7 @@ def build_player_comparison_data(
         "heatmap_b64": heatmap_b64,
         "pass_chart_b64": pass_chart_b64,
         "dribble_chart_b64": dribble_chart_b64,
+        "shot_chart_b64": shot_chart_b64,
     }
 
 
@@ -746,7 +710,7 @@ def plot_player_comparison_summary(
     comparison_summary: str = "",
     dpi: int = 150,
 ):
-    """球员对比汇总图 — 标题→对比总结→卡片+雷达+LLM→Player Map。
+    """球员对比汇总图 — 标题→对比总结→卡片+雷达+LLM→球员活动对比。
 
     布局（v5）：
     ┌────────────────────────────────────────────┐
@@ -757,7 +721,7 @@ def plot_player_comparison_summary(
     │ 卡片 A │  C1-C5 雷达      │  卡片 B          │
     │ LLM-A  │                 │  LLM-B           │
     ├────────┴─────────────────┴─────────────────┤
-    │           — Player Map 对比 —               │
+    │           — 球员活动对比 —                   │
     │  ┌──────────────┐ ┌──────────────┐         │
     │  │   热图 A     │ │   热图 B     │         │
     │  └──────────────┘ └──────────────┘         │
@@ -780,8 +744,8 @@ def plot_player_comparison_summary(
     total_w = margin + panel_w + inner_gap + radar_w + inner_gap + panel_w + margin
 
     # ── 各区域高度 ──
-    card_h = 1.85               # 球员基本信息卡片
-    llm_h = 1.15                # 球员叙事
+    card_h = 2.30               # 球员基本信息卡片（含双列指标）
+    llm_h = 1.35                # 球员叙事
     gap_between = 0.08          # 卡片与LLM之间间距
     main_bottom_pad = 0.06      # 底部留白防止边框被切
     main_row_h = card_h + gap_between + llm_h + main_bottom_pad
@@ -792,7 +756,7 @@ def plot_player_comparison_summary(
 
     # 图表区 — 全区宽，每行缩小到合理尺寸
     chart_row_h = 1.70          # 每行图表高度
-    chart_label_h = 0.28        # Player Map 标签
+    chart_label_h = 0.28        # 球员活动对比 标签
     charts_gap = 0.06           # 图表行间距
     main_charts_gap = 0.10      # 主行与Player Map间距（防止遮挡雷达）
 
@@ -800,6 +764,7 @@ def plot_player_comparison_summary(
         ("heatmap_b64", "热图"),
         ("pass_chart_b64", "传球"),
         ("dribble_chart_b64", "推进"),
+        ("shot_chart_b64", "射门"),
     ]
     available_charts = [(k, lb) for k, lb in chart_types
                         if player_a.get(k) or player_b.get(k)]
@@ -888,14 +853,14 @@ def plot_player_comparison_summary(
             return n
     main_ax.plot([lx1, lx1 + 0.28], [leg_y, leg_y],
                  color=HOME_COLOR, linewidth=2, marker="o", markersize=4, zorder=4)
-    main_ax.text(lx1 + 0.34, leg_y, _safe_name(player_a["name"]), fontsize=7,
+    main_ax.text(lx1 + 0.34, leg_y, _safe_name(player_a["name"]), fontsize=8,
                  color=HOME_COLOR, va="center", fontweight="bold")
     main_ax.plot([lx2, lx2 + 0.28], [leg_y, leg_y],
                  color=AWAY_COLOR, linewidth=2, linestyle="--", marker="s", markersize=4, zorder=4)
-    main_ax.text(lx2 + 0.34, leg_y, _safe_name(player_b["name"]), fontsize=7,
+    main_ax.text(lx2 + 0.34, leg_y, _safe_name(player_b["name"]), fontsize=8,
                  color=AWAY_COLOR, va="center", fontweight="bold")
 
-    # ═══════════════════ Player Map 对比 ═══════════════════
+    # ═══════════════════ 球员活动对比 ═══════════════════
     if n_chart_rows > 0:
         charts_y0 = footer_h + margin
         charts_ax = fig.add_axes([0, charts_y0 / total_h, 1, charts_total_h / total_h])
@@ -903,8 +868,8 @@ def plot_player_comparison_summary(
         charts_ax.axis("off"); charts_ax.set_facecolor(BG_COLOR)
 
         # 分区标签
-        charts_ax.text(total_w / 2, charts_total_h - 0.06, "— Player Map 对比 —",
-                       fontsize=8.5, color=MUTED_COLOR, ha="center", va="bottom", alpha=0.7)
+        charts_ax.text(total_w / 2, charts_total_h - 0.06, "— 球员活动对比 —",
+                       fontsize=10, color=MUTED_COLOR, ha="center", va="bottom", alpha=0.8)
 
         _draw_charts_fullwidth(fig, charts_ax, player_a, player_b,
                                available_charts, total_w, charts_total_h,
@@ -1032,7 +997,7 @@ def plot_player_comparison_detail(
 
 def _draw_player_info_card(ax, player: dict, x0: float, y_bot: float,
                            w: float, h: float, color: str):
-    """绘制球员基本信息卡片：头像 + 姓名# + 出场 + 进球/助攻/跑动/推进。"""
+    """绘制球员基本信息卡片：头像 + 姓名# + 出场 + 双列指标（进球/助攻/射门/xG | 关键事件/传球/传球成功率）。"""
     y_top = y_bot + h
 
     # 面板背景
@@ -1069,12 +1034,12 @@ def _draw_player_info_card(ax, player: dict, x0: float, y_bot: float,
     except Exception:
         pass
     ax.text(name_x, cy + 0.08, f"{display_name}  #{num}",
-            fontsize=10, color=TEXT_COLOR, va="center", fontweight="bold")
+            fontsize=11, color=TEXT_COLOR, va="center", fontweight="bold")
 
     # 出场时间
     mins = player.get("minutes", 0)
     ax.text(name_x, cy - 0.23, f"出场 {mins}'",
-            fontsize=8.5, color=MUTED_COLOR, va="center")
+            fontsize=9.5, color=MUTED_COLOR, va="center")
 
     # 跑动/推进
     run_km = player.get("run_km")
@@ -1086,25 +1051,61 @@ def _draw_player_info_card(ax, player: dict, x0: float, y_bot: float,
         phys_parts.append(f"推进 {carry_km:.2f} km")
     if phys_parts:
         ax.text(name_x, cy - 0.44, "  ".join(phys_parts),
-                fontsize=8, color="#3fb950", va="center")
+                fontsize=9, color="#3fb950", va="center")
 
-    # 进球 / 助攻 / 关键事件
-    label_x = inner_x + 0.05
-    cy2 = y_top - 1.15
+    # ── 双列指标 ──
+    # 从 dim_tables 提取关键指标
+    dim_tables = player.get("dim_tables", {})
+    def _find_val(dim, metric):
+        for row in dim_tables.get(dim, []):
+            if row[0] == metric:
+                return _fmt_val(row[1])
+        return "-"
+
     goals = player.get("goals", 0) or 0
     assists = player.get("assists", 0) or 0
     key_events = player.get("key_events", "") or "-"
-    basic = [("进球", str(goals)), ("助攻", str(assists)), ("关键事件", key_events)]
-    for lbl, val in basic:
-        ax.text(label_x, cy2, lbl, fontsize=8.5, color=MUTED_COLOR, va="center")
-        ax.text(label_x + 1.80, cy2, val, fontsize=8.5, color=TEXT_COLOR, va="center",
+    shots = _find_val("进攻", "射门")
+    xg = _find_val("进攻", "xG")
+    passes = _find_val("控制", "传球")
+    pass_pct = _find_val("控制", "传球成功率")
+
+    # 左列 (x0+0.15, 右列 x0+1.45)
+    col_l_label = inner_x + 0.05
+    col_l_val = inner_x + 0.75
+    col_r_label = inner_x + 1.40
+    col_r_val = inner_x + 2.10
+    row_spacing = 0.22
+    start_y = y_top - 1.00  # 指标区起始 Y
+
+    left_items = [
+        ("进球", str(goals)),
+        ("助攻", str(assists)),
+        ("射门", shots),
+        ("xG", xg),
+    ]
+    right_items = [
+        ("关键事件", key_events),
+        ("传球", passes),
+        ("传球成功率", pass_pct),
+    ]
+
+    for i, (lbl, val) in enumerate(left_items):
+        y = start_y - i * row_spacing
+        ax.text(col_l_label, y, lbl, fontsize=9.5, color=MUTED_COLOR, va="center")
+        ax.text(col_l_val, y, val, fontsize=9.5, color=TEXT_COLOR, va="center",
                 fontweight="bold")
-        cy2 -= 0.20
+
+    for i, (lbl, val) in enumerate(right_items):
+        y = start_y - i * row_spacing
+        ax.text(col_r_label, y, lbl, fontsize=9.5, color=MUTED_COLOR, va="center")
+        ax.text(col_r_val, y, val, fontsize=9.5, color=TEXT_COLOR, va="center",
+                fontweight="bold")
 
 
 def _draw_llm_narrative(ax, text: str, x0: float, y_bot: float,
                         w: float, h: float, color: str, title: str):
-    """在卡片下方绘制 LLM 叙事文字，左对齐。"""
+    """在卡片下方绘制 LLM 叙事文字，居中排列，加粗紧凑。"""
     if not text:
         return
 
@@ -1115,19 +1116,25 @@ def _draw_llm_narrative(ax, text: str, x0: float, y_bot: float,
     ax.add_patch(rect)
 
     # 标题 — 居中
-    ax.text(x0 + w / 2, y_bot + h - 0.16, title,
-            fontsize=8.5, color=color, ha="center", va="center", fontweight="bold")
+    title_y = y_bot + h - 0.18
+    ax.text(x0 + w / 2, title_y, title,
+            fontsize=10.5, color=color, ha="center", va="center", fontweight="bold")
 
-    # 正文 — 左对齐
-    wrapped = textwrap.fill(text, width=18)
+    # 正文 — 居中，加粗紧凑
+    content_top = title_y - 0.14       # 标题下方预留间距，避免重叠
+    content_bot = y_bot + 0.10         # 底部留白
+    content_h = content_top - content_bot
+    wrapped = textwrap.fill(text, width=14)
     lines = wrapped.split("\n")
-    line_h = 0.17
-    text_x = x0 + 0.10
-    text_y = y_bot + h - 0.38
+    line_h = 0.18                      # 紧凑行距
     max_lines = 6
+    n_lines = min(len(lines), max_lines)
+    total_text_h = n_lines * line_h
+    text_x = x0 + w / 2
+    text_y = content_bot + content_h / 2 + total_text_h / 2 - line_h / 2
     for li in lines[:max_lines]:
-        ax.text(text_x, text_y, li, fontsize=7,
-                color=MUTED_COLOR, ha="left", va="center")
+        ax.text(text_x, text_y, li, fontsize=10.0,
+                color=MUTED_COLOR, ha="center", va="center", fontweight="bold")
         text_y -= line_h
 
 
@@ -1192,15 +1199,15 @@ def _draw_dim_table_detail(ax, player: dict, x0: float, y_top: float, w: float, 
         hd_team = inner_x + 2.35
         hd_field = inner_x + 2.70
         for pos, txt in [(inner_x, "指标"), (hd_val, "值"), (hd_team, "队排"), (hd_field, "场排")]:
-            ax.text(pos, cy, txt, fontsize=6.5, color=MUTED_COLOR, va="center")
+            ax.text(pos, cy, txt, fontsize=7.5, color=MUTED_COLOR, va="center")
         cy -= 0.17
 
         for metric_name, value, team_rank, overall_rank, *_ in rows:
-            ax.text(inner_x, cy, metric_name, fontsize=7, color=TEXT_COLOR, va="center")
-            ax.text(hd_val, cy, _fmt_val(value), fontsize=7, color=TEXT_COLOR, va="center")
-            ax.text(hd_team, cy, str(team_rank), fontsize=7, color=_rank_color(team_rank),
+            ax.text(inner_x, cy, metric_name, fontsize=8, color=TEXT_COLOR, va="center")
+            ax.text(hd_val, cy, _fmt_val(value), fontsize=8, color=TEXT_COLOR, va="center")
+            ax.text(hd_team, cy, str(team_rank), fontsize=8, color=_rank_color(team_rank),
                     va="center", fontweight="bold")
-            ax.text(hd_field, cy, str(overall_rank), fontsize=7, color=_rank_color(overall_rank),
+            ax.text(hd_field, cy, str(overall_rank), fontsize=8, color=_rank_color(overall_rank),
                     va="center", fontweight="bold")
             cy -= 0.18
 
@@ -1247,7 +1254,7 @@ def _draw_charts_fullwidth(fig, ax, player_a: dict, player_b: dict,
                             margin + 0.06, y_bot + 0.08,
                             half_w - 0.12, avail_h, home_color)
         ax.text(left_cx, y_bot + row_h - 0.04,
-                f"{name_a} {label}", fontsize=7.5, color=HOME_COLOR,
+                f"{name_a} {label}", fontsize=9, color=HOME_COLOR,
                 ha="center", va="bottom", fontweight="bold")
 
         # Player B — 右半区
@@ -1256,7 +1263,7 @@ def _draw_charts_fullwidth(fig, ax, player_a: dict, player_b: dict,
                             mid + half_gap + 0.06, y_bot + 0.08,
                             half_w - 0.12, avail_h, away_color)
         ax.text(right_cx, y_bot + row_h - 0.04,
-                f"{name_b} {label}", fontsize=7.5, color=AWAY_COLOR,
+                f"{name_b} {label}", fontsize=9, color=AWAY_COLOR,
                 ha="center", va="bottom", fontweight="bold")
 
 
@@ -1360,10 +1367,10 @@ def _draw_chart_card_v2(fig, ax, b64_data, x: float, y: float,
                                   draw_cy - draw_h / 2, draw_cy + draw_h / 2],
                           zorder=3, interpolation='bilinear')
         except Exception:
-            ax.text(x + w / 2, y + h / 2, "加载失败", fontsize=7,
+            ax.text(x + w / 2, y + h / 2, "加载失败", fontsize=8,
                     color=MUTED_COLOR, ha="center", va="center", alpha=0.7)
     else:
-        ax.text(x + w / 2, y + h / 2, "暂无数据", fontsize=7,
+        ax.text(x + w / 2, y + h / 2, "暂无数据", fontsize=8,
                 color=MUTED_COLOR, ha="center", va="center", alpha=0.7)
 
 

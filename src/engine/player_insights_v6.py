@@ -936,21 +936,33 @@ def _player_dim_detail(
         label = dim_data.get("label", "")
 
         raw_metrics = dim_data.get("raw_metrics", {})
-        sorted_metrics = sorted(raw_metrics.items(), key=lambda x: -abs(x[1].get("contrib", 0)))[:8]
+        # Handle both nested dict (C1-C5) and flat value (C7) formats
         metrics = []
-        for mname, mdata in sorted_metrics:
-            raw_val = mdata.get("raw", 0)
-            z = mdata.get("z", 0)
+        for mname, mdata in raw_metrics.items():
+            if isinstance(mdata, dict):
+                raw_val = mdata.get("raw", 0)
+                z = mdata.get("z", 0)
+                contrib = abs(mdata.get("contrib", 0))
+                tr = mdata.get("_team_rank", "")
+                mr = mdata.get("_match_rank", "")
+            else:
+                raw_val = mdata
+                z = 0
+                contrib = 0
+                tr = mr = ""
             disp_name = C1_DISPLAY_NAMES.get(mname, mname)
-            tr = mdata.get("_team_rank", "")
-            mr = mdata.get("_match_rank", "")
             metrics.append({
                 "name": disp_name,
                 "raw": raw_val,
-                "z": round(z, 2),
+                "z": round(z, 2) if isinstance(z, (int, float)) else 0,
                 "team_rank": tr,
                 "match_rank": mr,
+                "_sort": contrib,
             })
+        metrics.sort(key=lambda x: -x["_sort"])
+        metrics = metrics[:8]
+        for m in metrics:
+            del m["_sort"]
 
         entry = {
             "dim_name": dim_name,
@@ -997,17 +1009,19 @@ def _build_all_players_prompt(
             "dim_detail": _player_dim_detail(kp, kp.get("positive_dim_keys", [])),
         })
 
-    # Enrich other players with ALL dims
+    # Enrich other players with ALL dims (including C7 for goalkeepers)
     enriched_other = []
-    all_dims = ["C1", "C2", "C3", "C4", "C5"]
+    outfield_dims = ["C1", "C2", "C3", "C4", "C5"]
+    gk_dims = ["C1", "C2", "C3", "C4", "C5", "C7"]
     for op in other_players:
+        dims = gk_dims if op.get("pos") == "G" else outfield_dims
         enriched_other.append({
             "name": op["name"],
             "team": op["team"],
             "pos": op["pos"],
             "minutes": op["minutes"],
             "events": op.get("events", []),
-            "dim_detail": _player_dim_detail(op, all_dims),
+            "dim_detail": _player_dim_detail(op, dims),
         })
 
     context = {

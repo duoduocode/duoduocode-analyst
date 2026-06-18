@@ -670,7 +670,18 @@ def save_lineup_png(raw: RawMatchData, output_path: str) -> str:
         raise ImportError("playwright is required. Install: pip install playwright && playwright install chromium")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        # 优先使用系统 Chrome，回退 bundled chromium
+        launch_kwargs = {"headless": True}
+        chrome_paths = [
+            "C:/Program Files/Google/Chrome/Application/chrome.exe",
+            "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+        ]
+        for cp in chrome_paths:
+            import os as _os
+            if _os.path.exists(cp):
+                launch_kwargs["executable_path"] = cp
+                break
+        browser = p.chromium.launch(**launch_kwargs)
         page = browser.new_page(viewport={"width": 560, "height": 1000}, device_scale_factor=2)
         page.set_content(full_html)
         # wait for images to load

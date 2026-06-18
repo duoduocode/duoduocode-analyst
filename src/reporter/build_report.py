@@ -535,6 +535,9 @@ def build_report_v3_html(
     tactical_narrative: str = "",
     tactical_data: dict = None,
     tactical_image_paths: dict = None,
+    article_titles: list[dict] = None,
+    player_features_md: str = "",
+    pressing_narrative: str = "",
 ) -> str:
     """v3 HTML report: direct HTML generation with rich styling and visuals."""
 
@@ -874,6 +877,143 @@ def build_report_v3_html(
     # ── Key events timeline (vertical center line, home left, away right) ──
     H.append('<h2>📋 关键事件时间线</h2>')
     H.append(_event_timeline_sided_html(raw.events, home_name, away_name, raw.home_team.id, raw.away_team.id))
+
+    # ═══════════════════════════════════════════
+    # 🖋️ 环节一：文章标题推荐
+    # ═══════════════════════════════════════════
+    if article_titles:
+        H.append('<h2>🖋️ 文章标题推荐</h2>')
+        H.append('<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px;margin:16px 0">')
+
+        angle_colors = {
+            "战术向": "#2ecc71",
+            "人物向": "#e67e22",
+            "数据向": "#3498db",
+            "自由角度": "#9b59b6",
+        }
+        for t in article_titles:
+            angle = t.get("angle", "自由角度")
+            color = angle_colors.get(angle, "#6b8fa3")
+            r = int(color[1:3], 16)
+            g = int(color[3:5], 16)
+            b = int(color[5:7], 16)
+            bg = f"rgba({r},{g},{b},0.08)"
+            border = f"1px solid rgba({r},{g},{b},0.25)"
+
+            H.append(f'''<div style="background:{bg};border:{border};border-radius:8px;padding:14px 16px">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+<span style="background:{color};color:#fff;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:3px">{angle}</span>
+</div>
+<div style="font-size:16px;font-weight:700;color:#fff;line-height:1.4;margin-bottom:4px">《{t.get("title", "")}》</div>
+<div style="font-size:12px;color:#8ab4d6">{t.get("reason", "")}</div>
+</div>''')
+        H.append('</div>')
+
+    # ═══════════════════════════════════════════
+    # 📰 环节二：球员人物特稿推荐
+    # ═══════════════════════════════════════════
+    if player_features_md:
+        H.append('<h2>📰 球员人物特稿推荐</h2>')
+        # Simple markdown-to-HTML conversion for the structured output
+        import re as _re
+        md_text = player_features_md
+
+        # Parse sections: ## 一、 / ### 球员 / **文章看点** / **文章标题备选** / **文章大纲**
+        # First, extract "一、比赛概述"
+        overview = ""
+        ov_match = _re.search(r'## 一、比赛概述\s*\n(.*?)(?=\n## |\n---|\Z)', md_text, _re.DOTALL)
+        if ov_match:
+            overview = ov_match.group(1).strip()
+            H.append(f'<div class="insight-box" style="border-left-color:#9b59b6"><p style="margin:0">{overview}</p></div>')
+
+        # Extract each player card
+        player_blocks = _re.split(r'\n### ', md_text)
+        for block in player_blocks[1:]:  # Skip pre-### content
+            if not block.strip():
+                continue
+
+            # Parse header: "球员姓名 | 所属球队 | 位置 | ⭐推荐指数"
+            lines = block.strip().split('\n')
+            header_line = lines[0].strip() if lines else ""
+            header_parts = [p.strip() for p in header_line.split('|')]
+            player_name = header_parts[0] if len(header_parts) > 0 else "未知球员"
+            team_name_p = header_parts[1] if len(header_parts) > 1 else ""
+            position_p = header_parts[2] if len(header_parts) > 2 else ""
+            rating_stars = header_parts[3] if len(header_parts) > 3 else ""
+
+            # Parse body: look for **key** patterns
+            body = '\n'.join(lines[1:])
+            highlights = ""
+            story_line = ""
+            titles_list = []
+            outline = ""
+
+            hl_match = _re.search(r'\*\*文章看点\*\*[：:]?\s*(.*?)(?=\n\*\*|\Z)', body, _re.DOTALL)
+            if hl_match:
+                highlights = hl_match.group(1).strip()
+
+            sl_match = _re.search(r'\*\*故事线\*\*[：:]?\s*(.*?)(?=\n\*\*|\Z)', body, _re.DOTALL)
+            if sl_match:
+                story_line = sl_match.group(1).strip()
+
+            title_match = _re.search(r'\*\*文章标题备选\*\*[：:]?\s*\n(.*?)(?=\n\*\*|\Z)', body, _re.DOTALL)
+            if title_match:
+                raw_titles = title_match.group(1).strip()
+                titles_list = _re.findall(r'\d+\.\s*《(.+?)》', raw_titles)
+
+            outline_match = _re.search(r'\*\*文章大纲\*\*[：:]?\s*\n(.*?)(?=\n---|\n### |\Z)', body, _re.DOTALL)
+            if outline_match:
+                outline = outline_match.group(1).strip()
+
+            # Determine card accent color based on stars
+            star_count = len([c for c in rating_stars if c == '⭐' or c == '★'])
+            if star_count >= 5:
+                card_color = "#f1c40f"
+            elif star_count >= 4:
+                card_color = "#2ecc71"
+            elif star_count >= 3:
+                card_color = "#3498db"
+            else:
+                card_color = "#6b8fa3"
+
+            H.append(f'''<div style="background:#162a38;border-left:4px solid {card_color};border-radius:0 8px 8px 0;padding:16px 20px;margin:16px 0">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+<h4 style="color:#fff;margin:0;font-size:17px">{player_name} <span style="font-weight:normal;font-size:13px;color:#8ab4d6">{team_name_p} · {position_p}</span></h4>
+<span style="font-size:13px;color:{card_color};font-weight:bold">{rating_stars}</span>
+</div>''')
+
+            if highlights:
+                H.append(f'<div style="margin-bottom:8px"><span style="color:{card_color};font-weight:bold">文章看点：</span><span style="color:#d0d8e0;font-size:14px">{highlights}</span></div>')
+
+            if story_line:
+                H.append(f'<div style="margin-bottom:8px"><span style="color:#8ab4d6;font-weight:bold">故事线：</span><span style="color:#bcd4e6;font-size:13px">{story_line}</span></div>')
+
+            if titles_list:
+                H.append(f'<details style="margin:8px 0"><summary style="color:#8ab4d6;font-weight:bold;cursor:pointer">文章标题备选 ({len(titles_list)}个)</summary>')
+                H.append('<ol style="margin:8px 0;padding-left:24px;color:#e0e8f0;font-size:13px">')
+                for t in titles_list[:5]:
+                    H.append(f'<li style="margin:4px 0">《{t}》</li>')
+                H.append('</ol></details>')
+
+            if outline:
+                outline_clean = outline.replace('- ', '<br/>　• ').replace('\n', '<br/>')
+                H.append(f'<details style="margin:8px 0"><summary style="color:#8ab4d6;font-weight:bold;cursor:pointer">文章大纲</summary>')
+                H.append(f'<div style="background:#0f1923;border-radius:6px;padding:12px 16px;margin-top:8px;font-size:13px;color:#c0cddc;line-height:1.8"><p style="margin:0">{outline_clean}</p></div>')
+                H.append('</details>')
+
+            H.append('</div>')
+
+        # Also include pressing narrative if available
+        if pressing_narrative:
+            H.append('<h2>💪 压迫分析</h2>')
+            # Parse pressing sections by 【标题】
+            pressing_sections = _parse_narrative_sections(pressing_narrative)
+            for title, content in pressing_sections.items():
+                if title == "全文":
+                    H.append(f'<div class="insight-box" style="border-left-color:#e74c3c"><p style="margin:0">{content}</p></div>')
+                else:
+                    H.append(f'<h4 style="color:#e74c3c;margin:12px 0 4px">{title}</h4>')
+                    H.append(f'<div class="insight-box" style="border-left-color:#e74c3c"><p style="margin:0">{content}</p></div>')
 
     # Footer
     H.append('<div class="footer">报告由 AI 足球分析员 v3 自动生成 | 数据来源：SportMonks API</div>')

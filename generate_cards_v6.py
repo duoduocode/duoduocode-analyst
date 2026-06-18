@@ -159,6 +159,7 @@ def build_card_html(
     heatmap_b64: Optional[str] = None,
     pass_chart_b64: Optional[str] = None,
     dribble_chart_b64: Optional[str] = None,
+    shot_chart_b64: Optional[str] = None,
 ) -> str:
     s = STYLE
 
@@ -251,22 +252,34 @@ def build_card_html(
     # Narrative text always shown above charts
     sum_text_html = f'<div class="su-full">{sum_text}</div>'
 
-    # Build charts row (heatmap, pass_chart, dribble_chart)
-    chart_cards = []
+    # Build charts row (heatmap, pass_chart, dribble_chart, shot_chart)
+    # Adaptive layout: 1-3 → single row; 4 → 2×2 grid
+    chart_items = []
     if heatmap_b64:
-        chart_cards.append(('比赛热图', heatmap_b64))
+        chart_items.append(('活动热图', heatmap_b64))
     if pass_chart_b64:
-        chart_cards.append(('传球分布', pass_chart_b64))
+        chart_items.append(('传球分布', pass_chart_b64))
     if dribble_chart_b64:
-        chart_cards.append(('带球推进', dribble_chart_b64))
+        chart_items.append(('带球推进', dribble_chart_b64))
+    if shot_chart_b64:
+        chart_items.append(('射门表现', shot_chart_b64))
 
-    if chart_cards:
-        n = len(chart_cards)
-        # Dynamically set chart card flex basis
+    n = len(chart_items)
+    if n == 4:
         charts_html = ""
-        for cap, b64 in chart_cards:
-            charts_html += f"""<div class="ch-card">
+        for cap, b64 in chart_items:
+            charts_html += f"""<div class="ch-card ch-card-4">
     <img src="{b64}" alt="{cap}" />
+    <div class="ch-cap">{cap}</div>
+  </div>"""
+        charts_row = f'<div class="ch-row-2x2">{charts_html}</div>'
+    elif n >= 1:
+        # 单行自适应: 1图=200px, 2图=180px, 3图=160px
+        img_h = {1: 200, 2: 180, 3: 160}.get(n, 150)
+        charts_html = ""
+        for cap, b64 in chart_items:
+            charts_html += f"""<div class="ch-card">
+    <img src="{b64}" alt="{cap}" style="height:{img_h}px" />
     <div class="ch-cap">{cap}</div>
   </div>"""
         charts_row = f'<div class="ch-row" style="grid-template-columns: repeat({n},1fr)">{charts_html}</div>'
@@ -294,8 +307,10 @@ body{{width:780px;font-family:"Microsoft YaHei","PingFang SC",sans-serif;backgro
  .su-full{{font-size:14px;color:{s["dim"]};line-height:1.55;font-weight:700;margin-bottom:10px}}
  /* Charts row — grid of 1–3 chart cards */
  .ch-row{{display:grid;gap:10px;margin-bottom:4px}}
+ .ch-row-2x2{{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:4px}}
  .ch-card{{border-radius:6px;overflow:hidden;border:1px solid {s["divider"]};background:{s["card_bg"]}}}
  .ch-card img{{width:100%;height:170px;object-fit:contain;display:block;background:{s["bg"]}}}
+ .ch-card-4 img{{height:140px}}
  .ch-cap{{text-align:center;font-size:10px;color:{s["dim"]};padding:4px 0 3px;font-weight:600}}
 /* Divider */
 .dv{{height:1px;background:linear-gradient(90deg,{s["primary"]}44,{s["accent"]}22,transparent);margin:16px 0;border:none}}
@@ -589,6 +604,7 @@ def build_cards_from_json(json_path: str, raw_path: str, match_id: int) -> List[
         heatmap_b64 = _load_base64_image(match_id, name, "heatmap.png")
         pass_chart_b64 = _load_base64_image(match_id, name, "pass_chart.png")
         dribble_chart_b64 = _load_base64_image(match_id, name, "dribble_chart.png")
+        shot_chart_b64 = _load_base64_image(match_id, name, "shot_chart.png")
 
         results.append({
             "name": name, "jersey": str(pi.get("number", "")),
@@ -601,6 +617,7 @@ def build_cards_from_json(json_path: str, raw_path: str, match_id: int) -> List[
             "heatmap_b64": heatmap_b64,
             "pass_chart_b64": pass_chart_b64,
             "dribble_chart_b64": dribble_chart_b64,
+            "shot_chart_b64": shot_chart_b64,
         })
 
     return results
@@ -627,12 +644,13 @@ def render_card_png(card_data: dict, output_path: str):
         heatmap_b64=card_data.get("heatmap_b64"),
         pass_chart_b64=card_data.get("pass_chart_b64"),
         dribble_chart_b64=card_data.get("dribble_chart_b64"),
+        shot_chart_b64=card_data.get("shot_chart_b64"),
     )
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(channel="chrome", headless=True)
         page = browser.new_page(viewport={"width": 800, "height": 1000})
         page.set_content(html, wait_until="commit", timeout=30000)
         h = page.evaluate("document.body.scrollHeight")

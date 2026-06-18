@@ -355,6 +355,69 @@ class SportMonksClient:
             return result
         return []
 
+    def get_news_by_team(self, team_id: int, limit: int = 10) -> list[dict]:
+        """拉取球队相关新闻摘要。
+
+        SportMonks v3 endpoint: /football/news
+        Returns: [{"title": ..., "content": ..., "url": ..., "created_at": ...}, ...]
+        """
+        try:
+            result = self._get("/news", {
+                "filters": f"team:{team_id}",
+                "per_page": limit,
+            })
+            if isinstance(result, dict) and "data" in result:
+                news_list = result["data"]
+            elif isinstance(result, list):
+                news_list = result
+            else:
+                news_list = []
+
+            parsed = []
+            for item in news_list:
+                parsed.append({
+                    "title": item.get("title", ""),
+                    "content": (item.get("content") or item.get("excerpt") or item.get("description", "")),
+                    "url": item.get("url", ""),
+                    "created_at": item.get("created_at", ""),
+                })
+            return parsed
+        except Exception as e:
+            print(f"  [WARN] Failed to fetch news for team {team_id}: {e}")
+            return []
+
+    def get_newsfeeds(self, team_ids: list[int], limit: int = 20) -> list[dict]:
+        """拉取多队新闻流。
+
+        SportMonks v3 endpoint: /football/newsfeeds
+        """
+        try:
+            ids_str = ",".join(str(tid) for tid in team_ids)
+            result = self._get("/newsfeeds", {
+                "filters": f"team:{ids_str}",
+                "per_page": limit,
+            })
+            if isinstance(result, dict) and "data" in result:
+                feeds = result["data"]
+            elif isinstance(result, list):
+                feeds = result
+            else:
+                feeds = []
+
+            parsed = []
+            for item in feeds:
+                parsed.append({
+                    "title": item.get("title", ""),
+                    "content": (item.get("content") or item.get("excerpt") or item.get("description", "")),
+                    "url": item.get("url", ""),
+                    "created_at": item.get("created_at", ""),
+                    "team_id": item.get("team_id", 0),
+                })
+            return parsed
+        except Exception as e:
+            print(f"  [WARN] Failed to fetch newsfeeds: {e}")
+            return []
+
 
 # ============================================================
 # 解析工具函数

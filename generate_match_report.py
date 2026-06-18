@@ -18,7 +18,11 @@ import logging
 import os
 import re
 import sys
+import time
 from pathlib import Path
+
+import requests
+from bs4 import BeautifulSoup
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -100,36 +104,239 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
     tactical_data = compute_tactical_analysis(raw)
     logger.info(f"  风格碰撞: {tactical_data['coaching']['style_clash']}")
 
-    # ── 1.5 比赛过程概述 (LLM v3: web 新闻 + 真实数据) ──
+    # ── 1.5 比赛过程概述 + 新闻摘要 + 图片 (豆包联网搜索 v4) ──
     match_overview = ""
     match_overview_sys = ""
     match_overview_user = ""
     stage_name = (raw.stage_info or {}).get("name", "")
     try:
-        from src.composer.match_overview_prompt import build_match_overview_prompt
-        from src.generator.llm_client import LLMClient
-        from fetch_match_context import fetch_match_context as fetch_web_context, save_context_to_dir
+        from src.generator.llm_client import DoubaoClient, LLMClient
 
         llm = LLMClient(config["llm"])
+        doubao = DoubaoClient(config.get("doubao", {}))
 
-        # 构建比赛信息
         stage_year = ""
         start_date = (raw.stage_info or {}).get("starting_at", "")
         if start_date:
             stage_year = start_date[:4]
-        ov_ctx_lines = []
-        if stage_year and stage_name:
-            ov_ctx_lines.append(f"赛事：{stage_year}年世界杯 {stage_name}")
-        elif stage_name:
-            ov_ctx_lines.append(f"赛事：{stage_name}")
-        ov_ctx_lines.append(f"对阵：{home_name} vs {away_name}")
-        if has_penalties:
-            ov_ctx_lines.append(f"最终比分：{total_home}-{total_away}（常规 {total_home-pen_home}-{total_away-pen_away}，点球 {pen_home}-{pen_away}）")
-        else:
-            ov_ctx_lines.append(f"比分：{home_name} {total_home}-{total_away} {away_name}")
-        match_ctx_str = "\n".join(ov_ctx_lines)
 
-        # 构建关键事件时间线
+        # 去中文名
+        _NAME_MAP_DB = {
+            "netherlands": "荷兰", "japan": "日本", "england": "英格兰",
+            "france": "法国", "germany": "德国", "spain": "西班牙",
+            "italy": "意大利", "portugal": "葡萄牙", "argentina": "阿根廷",
+            "brazil": "巴西", "sweden": "瑞典", "tunisia": "突尼斯",
+            "korea": "韩国", "south korea": "韩国",
+        }
+        home_cn = _NAME_MAP_DB.get(home_name.lower().strip(), home_name)
+        away_cn = _NAME_MAP_DB.get(away_name.lower().strip(), away_name)
+
+        # ─── 三轮豆包联网搜索 ───
+        prompts = {
+            "pre": f"请联网搜索{stage_year}年美加墨世界杯{home_cn}对{away_cn}的赛前新闻（赛前阵容、伤病、前瞻、历史交锋等）。\n按格式输出：## 赛前新闻列表（含来源）\n## 赛前新闻摘要(160-300字)",
+            "match": f"请联网搜索{stage_year}年美加墨世界杯{home_cn}对{away_cn}的比赛战报（首发、进球事件、关键数据、赛后评价）。\n按格式输出：## 比赛基本信息+关键事件时间线+双方首发阵容\n## 比赛赛况摘要(380-500字)",
+            "post": f"请联网搜索{stage_year}年美加墨世界杯{home_cn}对{away_cn}的赛后新闻（球员评价、纪录、出线形势等）。\n按格式输出：## 赛后新闻列表（含来源）\n## 赛后新闻摘要(160-300字)",
+        }
+
+        all_article_urls = []
+        all_summaries = {}
+        web_dir = output_dir / "web_context"
+        web_dir.mkdir(parents=True, exist_ok=True)
+
+        for mode, label in [("pre", "赛前"), ("match", "赛况"), ("post", "赛后")]:
+            logger.info(f"  豆包联网搜索 [{label}]...")
+            try:
+                t0 = time.time()
+                result = doubao.search(prompts[mode])
+                elapsed = time.time() - t0
+                all_summaries[mode] = result["content"]
+                all_article_urls.extend(result["article_urls"])
+                # 保存文本
+                txt_path = web_dir / f"{mode}.txt"
+                with open(txt_path, "w", encoding="utf-8") as f:
+                    f.write(f"# {label}新闻摘要\n> 豆包联网搜索 | {elapsed:.1f}s\n> tokens: in={result['input_tokens']} out={result['output_tokens']}\n\n")
+                    f.write(result["content"])
+                logger.info(f"    {label}.txt: {len(result['content'])} 字符 | {len(result['article_urls'])} URLs")
+            except Exception as e:
+                logger.warning(f"    豆包 [{label}] 搜索失败: {e}")
+                all_summaries[mode] = f"（搜索失败: {e}）"
+            time.sleep(2)
+
+        # ─── 去重文章URL ───
+        unique_urls = list(dict.fromkeys(all_article_urls))
+        logger.info(f"  去重后文章URL: {len(unique_urls)} 条")
+
+        # ─── 从文章页提取图片 ───
+        img_dir = web_dir / "images"
+        img_dir.mkdir(parents=True, exist_ok=True)
+
+        def _extract_images_from_page(url: str) -> list:
+            """从文章页提取比赛相关图片。
+            优先队名/关键词匹配，无匹配时宽模式兜底（文章来自豆包搜索，页面本身相关）。
+            """
+            try:
+                r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+                                timeout=15, allow_redirects=True, verify=False)
+                r.raise_for_status()
+            except Exception:
+                return []
+            soup = BeautifulSoup(r.text, "html.parser")
+            container = soup.find("article") or soup.find("main") or soup.find("body")
+            if not container:
+                return []
+
+            skip_d = ("beacon", "tracking", "pixel", "doubleclick", "analytics")
+            skip_p = ("logo", "icon", "avatar", "qr", "ewm", "share", "arrow", "btn",
+                      "close", "weixin", "wechat", "code", "homepage", "default",
+                      "fileftp", "login", "placeholder", "blank",
+                      "/user/", "discusser", "bg@", "top-video", "inside-top",
+                      "style/", "static.", "favicon", "emoticon")
+            # 队名关键词
+            team_kw = set()
+            for name in (home_name, away_name, home_cn, away_cn):
+                if name and len(name) > 2:
+                    team_kw.add(name.lower().strip())
+            # 足球通用关键词
+            match_kw = {"世界杯", "world cup", "进球", "goal", "庆祝", "celebrat",
+                        "首发", "lineup", "2026", "fifa"}
+            # 加入Top 6球员名
+            for p in sorted(raw.home_players + raw.away_players,
+                           key=lambda x: x.rating or 0, reverse=True)[:6]:
+                name = (p.name or "").strip()
+                if name:
+                    match_kw.add(name.lower())
+                    parts = name.split()
+                    if len(parts) > 1:
+                        match_kw.add(parts[-1].lower())
+
+            # ─── 全量扫描，记录"候选图片" ───
+            all_candidates = []  # 所有通过尺寸/后缀过滤的图片
+            seen = set()
+
+            for img in container.find_all("img"):
+                src = img.get("src") or img.get("data-src") or img.get("data-original") or img.get("data-lazy-src") or ""
+                if not src:
+                    continue
+                if src.startswith("//"):
+                    src = "https:" + src
+                if not src.startswith("http") or src in seen:
+                    continue
+                seen.add(src)
+                sl = src.lower()
+                if any(k in sl for k in skip_d):
+                    continue
+                if any(k in sl for k in skip_p):
+                    continue
+                if not any(sl.endswith(e) for e in (".jpg", ".jpeg", ".png", ".webp")):
+                    continue
+                sz = re.search(r'[_-](\d+)x(\d+)', src)
+                if sz and (int(sz.group(1)) < 100 or int(sz.group(2)) < 100):
+                    continue
+                alt = (img.get("alt") or "").strip()
+                alt_l = alt.lower()
+                info = {"url": src, "alt": alt, "source_url": url}
+
+                # ─── 黑名单: alt/URL 明确不是比赛图片的 ───
+                alt_blacklist = ("avatar", "header", "discusser", "bg@", "bg-",
+                                 "favicon", "emoticon", "logo", "icon-",
+                                 "top-video", "inside-top", "background")
+                if any(kw in alt_l for kw in alt_blacklist):
+                    continue  # 直接丢弃
+
+                # 标记匹配级别
+                matched = False
+                # Level 1: alt/URL 含队名
+                if any(kw in alt_l for kw in team_kw) or any(kw in sl for kw in team_kw):
+                    info["level"] = 1
+                    matched = True
+                # Level 2: alt/URL 含通用关键词
+                elif any(kw in alt_l for kw in match_kw) or any(kw in sl for kw in match_kw):
+                    info["level"] = 2
+                    matched = True
+                # Level 3: 父元素文本含队名
+                else:
+                    parent_text = ""
+                    for p in img.parents:
+                        txt = p.get_text(strip=True)
+                        if len(txt) > 10:
+                            parent_text = txt; break
+                    if parent_text and team_kw:
+                        pl = parent_text.lower()
+                        if any(kw in pl for kw in team_kw):
+                            info["level"] = 3
+                            matched = True
+
+                if matched:
+                    all_candidates.append(info)
+                else:
+                    info["level"] = 4
+                    all_candidates.append(info)  # 无匹配，但先保留
+
+            # ─── 排序: level小的(匹配度高)优先；level=4的放到最后 ───
+            all_candidates.sort(key=lambda x: x.get("level", 99))
+            # 去重
+            seen2 = set()
+            final = []
+            for c in all_candidates:
+                if c["url"] not in seen2:
+                    seen2.add(c["url"])
+                    final.append(c)
+            # 最多60张候选，后续下载按字节大小再过滤
+            return final[:60]
+
+        all_images = []
+        for i, url in enumerate(unique_urls):
+            imgs = _extract_images_from_page(url)
+            all_images.extend(imgs)
+            time.sleep(0.3)
+
+        # 图片去重
+        seen_urls = set()
+        unique_imgs = []
+        for img in all_images:
+            if img["url"] not in seen_urls:
+                seen_urls.add(img["url"])
+                unique_imgs.append(img)
+        logger.info(f"  图片: 原始{len(all_images)}张 → 去重{len(unique_imgs)}张")
+
+        # ─── 下载图片 ───
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        downloaded = []
+        for i, img in enumerate(unique_imgs):
+            url = img["url"]
+            try:
+                r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+                                timeout=15, verify=False)
+                r.raise_for_status()
+                if len(r.content) < 5 * 1024:
+                    continue
+                ext = ".jpg"
+                for e in (".jpg", ".jpeg", ".png", ".webp"):
+                    if e in url.lower():
+                        ext = e; break
+                fname = f"img_{len(downloaded)+1:03d}{ext}"
+                with open(img_dir / fname, "wb") as f:
+                    f.write(r.content)
+                downloaded.append({"filename": fname, "url": url,
+                                   "alt": img["alt"], "source_url": img["source_url"],
+                                   "size_kb": len(r.content) // 1024})
+            except Exception:
+                pass
+            time.sleep(0.15)
+            if len(downloaded) >= 30:
+                break
+        logger.info(f"  下载成功: {len(downloaded)} 张 | 总大小: {sum(d['size_kb'] for d in downloaded)//1024} MB")
+
+        # 保存图片索引
+        with open(web_dir / "images.json", "w", encoding="utf-8") as f:
+            json.dump({"match": f"{home_name} vs {away_name}", "match_id": raw.match_id,
+                       "total": len(downloaded), "images": downloaded,
+                       "source_articles": unique_urls,
+                       "search_provider": "doubao"}, f, ensure_ascii=False, indent=2)
+
+        # ─── 组装 match_overview ───
+        # 构建关键事件时间线（SportMonks 数据）
         key_ev_lines = []
         for ev in raw.events:
             if ev.event_type in ("Goal", "Card") and ev.detail not in ("pen_shootout_goal", "pen_shootout_miss"):
@@ -140,31 +347,47 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
                 key_ev_lines.append(desc)
         key_ev_str = "\n".join(key_ev_lines[:30])
 
-        # Step A1.5: web 抓取比赛战报
-        web_ctx = fetch_web_context(home_name, away_name)
-        news_text = web_ctx.text if web_ctx.success else ""
-        if web_ctx.success:
-            web_dir = output_dir / "web_context"
-            save_context_to_dir({"match": web_ctx}, web_dir,
-                               match_id=raw.match_id, home=home_name, away=away_name)
+        # 构建比赛基本信息
+        score_line = f"{home_name} {total_home}-{total_away} {away_name}"
+        if has_penalties:
+            score_line += f"（常规 {total_home-pen_home}-{total_away-pen_away}，点球 {pen_home}-{pen_away}）"
+        match_info = f"赛事：{stage_year}年世界杯 {stage_name}\n对阵：{home_name} vs {away_name}\n比分：{score_line}"
 
-        ov_sys, ov_user = build_match_overview_prompt(
-            match_context=match_ctx_str,
-            key_events_text=key_ev_str,
-            news_text=news_text[:3000],  # 截断避免 token 过长
-        )
-        match_overview_sys = ov_sys
-        match_overview_user = ov_user
-        logger.info("调用 LLM 生成比赛过程概述 (v3: web新闻+数据)...")
-        for ov_attempt in range(3):
-            match_overview = llm.generate(ov_sys, ov_user, max_tokens=800)
-            if match_overview:
-                break
-            if ov_attempt < 2:
-                logger.warning(f"  概述返回空内容，重试 {ov_attempt + 1}/2...")
-        logger.info(f"  概述长度: {len(match_overview)} 字符")
+        # 赛况摘要直接用作 match_overview
+        match_content = all_summaries.get("match", "")
+        if match_content and "（搜索失败" not in match_content:
+            # 提取"赛况摘要"部分
+            m = re.search(r'比赛赛况摘要.*?\n(.*)', match_content, re.DOTALL)
+            if m:
+                match_overview = m.group(1).strip()
+            else:
+                match_overview = match_content[:1500]
+        if not match_overview:
+            match_overview = f"{match_info}\n{key_ev_str}"
+
+        # DeepSeek 精细润色
+        try:
+            from src.composer.match_overview_prompt import build_match_overview_prompt
+            ov_sys, ov_user = build_match_overview_prompt(
+                match_context=match_info,
+                key_events_text=key_ev_str,
+                news_text=match_overview[:2500],
+            )
+            match_overview_sys = ov_sys
+            match_overview_user = ov_user
+            logger.info("  DeepSeek 精细润色 match_overview...")
+            for ov_attempt in range(2):
+                refined = llm.generate(ov_sys, ov_user, max_tokens=600)
+                if refined:
+                    match_overview = refined
+                    break
+        except Exception as e:
+            logger.warning(f"  match_overview DeepSeek 润色跳过: {e}")
+
+        logger.info(f"  match_overview 概述长度: {len(match_overview)} 字符")
+
     except Exception as e:
-        logger.warning(f"比赛过程概述 LLM 跳过: {e}")
+        logger.warning(f"比赛过程概述 (豆包v4) 跳过: {e}")
 
     # ── 2. LLM 战术叙事 ──
     tactical_narrative = ""
@@ -1076,13 +1299,13 @@ def generate_player_cards_v6(match_id: int, output_dir: Path,
 
     logger.info("生成球员卡片 V6...")
     if player_filter:
-        count = generate_player_card(players, player_filter, str(cards_dir))
+        count = generate_player_card(players, player_filter, str(cards_dir), match_id)
         logger.info(f"  生成卡片: {player_filter} -> {count}")
     elif key_only:
-        count = generate_key_cards(players, str(cards_dir))
+        count = generate_key_cards(players, str(cards_dir), match_id)
         logger.info(f"  生成关键球员卡片: {count} 张")
     else:
-        count = generate_all_cards(players, str(cards_dir))
+        count = generate_all_cards(players, str(cards_dir), match_id)
         logger.info(f"  生成全部卡片: {count} 张")
 
 

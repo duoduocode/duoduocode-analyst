@@ -1,20 +1,21 @@
 # AGENTS.md — AI 足球分析员 (Football Analyst)
 
 > 本文档供 AI Agent 理解项目上下文、架构与常见问题，便于在新环境中快速上手调试。
+> 最后更新: 2026-06-18
 
 ---
 
 ## 1. 项目概述
 
-**目标**：从 **SportMonks Football API V3** 获取比赛全量数据 → 趋势分析 + **36 个信号检测器**自动识别比赛看点 → 调用 DeepSeek LLM 生成动态叙事 → mplsoccer 生成图表 → 拼装 Markdown 图文报告，适配微信公众号发布。
+**目标**：从 **SportMonks Football API V3** 获取比赛全量数据 → 趋势分析 + **36 个信号检测器**自动识别比赛看点 → 调用 DeepSeek + 豆包 双 LLM 生成动态叙事 → mplsoccer 生成图表 → 拼装 HTML 图文报告，适配微信公众号发布。
 
 **核心理念**：不再用固定模板套每场比赛，而是通过**信号驱动**自动发现每场比赛最值得分析的独特角度。
 
-**技术栈**：Python 3.11+ / requests / pyyaml / matplotlib / mplsoccer / numpy / scipy / markdown / jinja2
+**技术栈**：Python 3.11+ / requests / pyyaml / matplotlib / mplsoccer / numpy / scipy / markdown / jinja2 / BeautifulSoup / Playwright
 
-**LLM**：DeepSeek (`deepseek-chat` / `deepseek-v4-pro`)，OpenAI 兼容协议，支持两种调用方式：
-- 优先尝试 `openai` SDK (Python 包)
-- 后备：纯 `requests` HTTP POST 到 `/chat/completions`
+**LLM 双引擎**：
+- **DeepSeek** (`deepseek-v4-pro`)：战术叙事、压迫分析、文章取名、球员特稿等深度文本生成。OpenAI 兼容协议，SDK 优先，requests 后备。
+- **豆包 Doubao** (`doubao-seed-2-0-pro-260215`)：联网搜索赛前/赛况/赛后新闻摘要 + 图片源定位。使用火山引擎 Ark Responses API + `web_search` tool。
 
 **数据来源**：SportMonks V3 — 单次 API 请求（含 `periods.statistics`, `periods.events`, `trends`, `coaches` 等全量 include）获取 ~1700 条趋势记录 + 分时段统计 + 球员/球队/事件/比分数据。
 
@@ -24,7 +25,7 @@
 
 ```bash
 # 1. 安装依赖
-pip install requests pyyaml matplotlib mplsoccer numpy scipy openai markdown jinja2
+pip install requests pyyaml matplotlib mplsoccer numpy scipy openai markdown jinja2 beautifulsoup4 playwright urllib3
 
 # 2. 配置 API Key（两种方式）
 #    方式A: 写到 config.yaml（已配置则跳过）
@@ -45,13 +46,18 @@ python generate_match_report.py 19683241 --cards-only    # 仅球员卡片
 
 ```
 duoduocode-analyst/
-├── config.yaml                          # SportMonks API Token + LLM 配置
+├── config.yaml                          # SportMonks API + DeepSeek + 豆包 配置
 ├── config.example.yaml
 ├── generate_match_report.py             # ★★ 统一报告入口（战术 V2 + 球员 V6 + 文章取名 + 球员特稿）
 ├── compare_players.py                   # 球员对比图生成
 ├── generate_cards_v6.py                 # v6 球员贡献卡片生成（Playwright → PNG）
 ├── AGENTS.md                            # 本文档
-├── fetch_match_context.py               # ★ Web 战报/新闻抓取模块（Bing News → 清洗 → 保存）
+├── fetch_match_context.py               # [旧] Web 战报/新闻抓取模块（Bing News → 清洗 → 保存，已不再主力使用）
+├── experiment_doubao_search.py          # [实验] 豆包联网搜索验证（赛前/赛况/赛后摘要）
+├── experiment_search_and_images.py      # [实验] 豆包搜索 + 图片提取一体化验证
+├── experiment_image_hunt.py             # [实验] 多源图片猎手（图集搜索+Bing直搜+新闻补充）
+├── experiment_image_search.py           # [实验] 豆包图片搜索能力测试
+├── _debug_ark.py / _debug_ark2.py       # [一次性] Ark API 调试脚本
 ├── prompts/                             # Prompt 模板 (Jinja2+YAML)
 │   ├── tactical.yaml                   # ★ 战术分析四层模型叙事
 │   ├── pressing.yaml                   # ★ 压迫分析四段式
@@ -83,13 +89,14 @@ duoduocode-analyst/
 │   │   ├── pressing_prompt.py          # ★ 压迫分析 Prompt 构建
 │   │   ├── article_naming_prompt.py    # ★ 文章取名 Prompt 组装 + 解析
 │   │   ├── player_feature_prompt.py    # ★ 球员推荐 Prompt 组装
+│   │   ├── match_overview_prompt.py    # ★ match_overview 润色 Prompt
 │   │   └── data_builder.py             # v3 六段叙事 Prompt 组装
 │   ├── generator/
-│   │   └── llm_client.py              # DeepSeek（openai SDK 优先，requests 后备）
+│   │   └── llm_client.py              # ★ LLMClient (DeepSeek) + DoubaoClient (豆包联网搜索)
 │   ├── visualizer/
 │   │   ├── __init__.py                 # 颜色常量 + matplotlib 中文字体配置
-│   │   ├── tactical_charts.py          # ★ 战术图表（雷达/控球/射门/PPDA/压迫/时间轴）
-│   │   ├── lineup.py                   # ★ 阵容图（HTML + PNG）
+│   │   ├── tactical_charts.py          # ★ 战术图表（雷达/控球/射门/PPDA/压迫/时间轴），Playwright 渲染支持系统 Chrome
+│   │   ├── lineup.py                   # ★ 阵容图（HTML + PNG），Playwright 渲染支持系统 Chrome
 │   │   ├── player_comparison.py        # ★ 球员对比图（双面板 + 雷达图）
 │   │   ├── player_card.py              # ★ 球员贡献卡片
 │   │   ├── efficiency.py / momentum.py / pass_network.py / radar.py / subs.py / xg_hist.py
@@ -111,7 +118,7 @@ duoduocode-analyst/
 │   ├── computed/{match_id}_players_v6.json   # ★ v6 球员贡献 JSON
 │   └── computed/{match_id}_players_v6.xlsx   # ★ v6 球员贡献 Excel (9 sheets)
 └── output/{match_id}_{HOME}_vs_{AWAY}/
-    ├── tactical_report.html            # ★★ 主力产品：战术分析报告 V2
+    ├── tactical_report.html            # ★★ 主力产品：战术分析报告 V2 (8 大板块)
     ├── report_v3.html                  # v3 报告（旧格式，不再生成）
     ├── article_titles.json             # ★ 环节一：10 篇文章标题
     ├── player_features.md              # ★ 环节二：球员人物特稿推荐
@@ -120,13 +127,13 @@ duoduocode-analyst/
     ├── player_cards/                   # 球员贡献卡片 (29 张 PNG)
     ├── compare/                        # 球员对比图
     │   └── PlayerA_vs_PlayerB.png
-    ├── web_context/                    # ★ Web 抓取的赛前/战报/赛后新闻 + 图片
-    │   ├── pre.txt                     #   赛前首发/前瞻
-    │   ├── match.txt                   #   比分战报（清洗后仅本场内容）
-    │   ├── post.txt                    #   赛后复盘/纪录
-    │   ├── images.json                 #   图片索引
-    │   └── images/                     #   比赛图片
-    └── images/                         # 图表 (9 张)
+    ├── web_context/                    # ★ 豆包联网搜索产出的新闻 + 图片 (v4 新流程)
+    │   ├── pre.txt                     #   赛前新闻摘要 (含阵容/前瞻/历史交锋)
+    │   ├── match.txt                   #   赛况战报 (含首发阵容 + 关键事件时间线 + 比赛摘要)
+    │   ├── post.txt                    #   赛后新闻摘要 (含球员评价/纪录/出线形势)
+    │   ├── images.json                 #   图片索引 (含 URL、来源文章、alt 文本)
+    │   └── images/                     #   比赛相关图片 (最多30张，按匹配度排序)
+    └── images/                         # 战术图表 (9 张)
         ├── tactical_radar.png          # 战术雷达图
         ├── tactical_shots.png          # 时段射门分布
         ├── tactical_ppda.png           # 压迫强度对比
@@ -171,8 +178,8 @@ python compare_players.py 19683241 "PlayerA" "PlayerB"  # 球员对比（独立�
 | 步骤 | 动作 | 依赖文件 | 产出文件 | 代码位置 |
 |------|------|---------|---------|---------|
 | A1 | 四层因果模型计算 | `raw_data.json` | 内存中的 tactical_data dict | `src/engine/tactical_insights.py` |
-| A1.5 | **Web 抓取比赛新闻** | Bing News | `web_context/{pre,match,post}.txt` + 图片 | `fetch_match_context.py` |
-| A2 | **比赛过程概述 (LLM v3)** | `web_context/match.txt` + `raw_data.json` | 新闻战报风格概述 (~300-500 字) | `src/composer/match_overview_prompt.py` |
+| **A1.5** | **豆包联网搜索 + 图片抓取 (v4)** | 豆包 Responses API | `web_context/{pre,match,post}.txt` + 图片 + `images.json` | `generate_match_report.py` 内嵌 |
+| A2 | **match_overview 生成** | 豆包赛况摘要 + DeepSeek 精细润色 | 新闻战报风格概述 (~500-600 字) | `src/composer/match_overview_prompt.py` |
 | A3 | LLM 五段战术叙事 | `prompts/tactical.yaml`, A1, A2 | 叙事文本 (~4000 tokens) | `src/composer/tactical_prompt.py` |
 | A4 | 战术图表 ×5 | A1 | radar/possession/shots/ppda/ppda_timeline | `src/visualizer/tactical_charts.py` |
 | A5 | 压迫分析图表 ×2 | A1 + raw trends | pressing_effectiveness / pressing_efficiency | `src/visualizer/tactical_charts.py` |
@@ -212,14 +219,7 @@ python compare_players.py 19683241 "PlayerA" "PlayerB"  # 球员对比（独立�
 
 #### 第五步：球员对比（管道 D，独立运行 `compare_players.py`）
 
-| 步骤 | 动作 | 依赖文件 | 产出文件 | 代码位置 |
-|------|------|---------|---------|---------|
-| D1 | 加载比赛数据 | `data/raw/{id}/raw_data.json` | lineups + events | `compare_players.py` |
-| D2 | 五维检测器运行 | D1 | C1-C5 指标 + 队内/全场排名 | `src/engine/player_insights.py` |
-| D3 | 关键事件 | D1 | 首开/绝杀/制胜等标签 | `src/engine/key_events.py` |
-| D4 | 物理数据加载 | `data/{id}/{PlayerName}/run_data.json`（可选）<br>`data/{id}/{PlayerName}/carry_data.json`（可选） | 跑动距离 / 带球推进 | `compare_players.py` |
-| D5 | 加载 LLM 叙事 | `data/computed/{id}_players_v6.json` | 两名球员的叙事文本 | `compare_players.py` |
-| D6 | 绘制对比图 | D1+D2+D3+D4+D5 | `output/.../compare/{A}_vs_{B}.png` | `src/visualizer/player_comparison.py` |
+同前，略。
 
 ---
 
@@ -227,7 +227,7 @@ python compare_players.py 19683241 "PlayerA" "PlayerB"  # 球员对比（独立�
 
 ```
 外部输入（只读）
-  config.yaml                           # API Token + LLM 配置
+  config.yaml                           # SportMonks API + DeepSeek + 豆包 配置
   prompts/tactical.yaml                 # 战术叙事 Prompt 模板
   prompts/pressing.yaml                 # 压迫分析 Prompt 模板
   prompts/article_naming.yaml           # 文章取名 Prompt 模板
@@ -241,7 +241,13 @@ python compare_players.py 19683241 "PlayerA" "PlayerB"  # 球员对比（独立�
       (唯一数据源)    │   ├── article_titles.json (环节一: 10 标题)
                      │   ├── player_features.md  (环节二: 球员特稿)
                      │   ├── tactical_analysis.json / .xlsx
-                     │   ├── images/ (9 张图表)
+                     │   ├── web_context/         ★ 豆包联网搜索产出
+                     │   │   ├── pre.txt          (赛前新闻摘要)
+                     │   │   ├── match.txt        (赛况战报 + 首发)
+                     │   │   ├── post.txt         (赛后新闻摘要)
+                     │   │   ├── images.json      (图片索引)
+                     │   │   └── images/          (比赛图片, ≤30张)
+                     │   ├── images/ (9 张战术图表)
                      │   │   ├── tactical_radar.png
                      │   │   ├── tactical_possession.png
                      │   │   ├── tactical_shots.png
@@ -275,671 +281,361 @@ python compare_players.py 19683241 "PlayerA" "PlayerB"  # 球员对比（独立�
 
 ---
 
-### 4.4 首次运行示例
+## 5. LLM 双引擎架构
 
-```bash
-# 第一步：生成完整报告（产出 raw_data.json + tactical_report.html + _players_v6.json/.xlsx）
-python generate_match_report.py 19683241
+### 5.1 架构概览
 
-# 第二步：生成球员卡片 PNG（依赖第一步的 _players_v6.json）
-python generate_match_report.py 19683241 --cards-only
+```
+LLM 双引擎
+├── DeepSeek (LLMClient)
+│   用途: 战术叙事 / 压迫分析 / 文章取名 / 球员特稿 / 球员分析
+│   协议: OpenAI 兼容 Chat Completions
+│   端点: /v1/chat/completions
+│   配置: config.yaml → llm 节点
+│
+└── 豆包 Doubao (DoubaoClient)
+    用途: 联网搜索赛前/赛况/赛后新闻 + 图片源URL定位
+    协议: 火山引擎 Ark Responses API
+    端点: /api/v3/responses
+    配置: config.yaml → doubao 节点
+    特性: tools: [{"type": "web_search"}] 开启联网搜索
+```
 
-# 第三步（可选）：生成球员对比图
-python compare_players.py 19683241 "Declan Rice" "Vitinha"
+### 5.2 DeepSeek (LLMClient)
+
+- **模型**: `deepseek-v4-pro` (当前主力)
+- **调用方式**: OpenAI SDK 优先 → 失败回退 requests HTTP POST
+- **代码位置**: `src/generator/llm_client.py` → `LLMClient` 类
+- **方法**: `generate(system_prompt, user_prompt, max_tokens)` → str
+- **重试**: 3次，指数退避 (1s, 2s, 4s)
+- **Token 用量**: 日志输出 `LLM: tokens=N`
+
+### 5.3 豆包 Doubao (DoubaoClient)
+
+- **模型**: `doubao-seed-2-0-pro-260215`
+- **API Key**: `ark-b3a3d353-b34b-4310-a789-8e88b3cd3269-51821`
+- **端点**: `https://ark.cn-beijing.volces.com/api/v3/responses`
+- **前置条件**: 需在火山引擎控制台开通"联网内容插件" → https://console.volcengine.com/common-buy/CC_content_plugin
+- **方法**: `search(prompt, max_tokens, enable_web_search)` → dict {content, annotations, article_urls, input_tokens, output_tokens}
+- **input 格式**: `[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}]`
+- **output 解析**: 遍历 `data["output"]`，提取 `output_text` + `annotations` 中的 `url_citation`
+- **模型名格式**: `doubao-seed-2-0-pro-260215`（连字符格式），不是 `doubao-seed-2.0-pro`（点号格式会 404）
+- **费用**: 输入 ¥0.514/1M tokens + 输出 ¥2.57/1M tokens（约 ¥0.05~0.15/场）
+
+### 5.4 config.yaml 完整配置
+
+```yaml
+sportmonks:
+  base_url: "https://api.sportmonks.com/v3/football"
+  api_token: "你的SportMonks Token"
+
+llm:                          # DeepSeek
+  provider: "deepseek"
+  api_key: "sk-xxx"
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-pro"
+  temperature: 0.7
+  max_tokens: 2048
+
+doubao:                       # 豆包联网搜索
+  api_key: "ark-xxx"
+  base_url: "https://ark.cn-beijing.volces.com/api/v3"
+  model: "doubao-seed-2-0-pro-260215"
+  temperature: 0.7
+  max_tokens: 4096
+
+competition:
+  league_id: 1
+  season: 2026
+
+visual:
+  dpi: 150
+  pitch_color: "grass"
+  font_family: "sans-serif"
 ```
 
 ---
 
-## 5. generate_match_report.py 完整架构
+## 6. Step A1.5 详细设计：豆包联网搜索 + 图片抓取 (v4)
 
-### 5.1 三条管道流水线
+### 6.1 流程
 
 ```
-generate_match_report.py  (1044 行)
-
-generate_full_report()
-├── [1] load_match_data()                    优先缓存 → API 拉取
-├── [2] generate_player_contribution_v6()    ← 管道 B (默认执行)
-│       └── (--tactical-only 跳过)
-├── [3] generate_tactical_report_v2()        ← 管道 A (默认执行)
-└── [4] generate_player_cards_v6()           ← 管道 C (仅 --cards-only)
+Step A1.5 (v4) ─ 替代旧版 Bing News 抓取
+│
+├── [1] 三轮豆包联网搜索
+│     ├── pre (赛前):  阵容/伤病/前瞻/历史交锋 → pre.txt
+│     ├── match (赛况): 首发/进球/关键数据/赛后评价 → match.txt (含完整时间线)
+│     └── post (赛后):  球员评价/纪录/出线形势 → post.txt
+│     每次搜索返回: 摘要文本 + 引用文章URL列表 (annotations)
+│
+├── [2] 文章URL去重 → 逐页提取图片
+│     └── _extract_images_from_page(url) 内嵌函数
+│         ├── 跳过: 追踪像素、Logo、图标、二维码、头像、CSS背景
+│         ├── 四层匹配:
+│         │   Level 1: alt/URL 含队名（如 "France", "法国"）
+│         │   Level 2: alt/URL 含通用关键词（"世界杯", "goal", Top6球员名）
+│         │   Level 3: 父元素文本含队名
+│         │   Level 4: 无匹配但通过格式过滤 → 兜底保留
+│         ├── 按匹配度排序，Level 1-3 优先
+│         └── alt 黑名单: "avatar", "header", "discusser", "bg@", "logo", "favicon" 等 → 直接丢弃
+│
+├── [3] 图片去重 → 下载（最多30张，≥5KB）
+│     └── → web_context/images/img_001~030.jpg
+│
+├── [4] 保存 images.json (含 URL / 来源文章 / alt / 大小)
+│
+└── [5] 组装 match_overview
+      ├── 豆包赛况摘要作为初稿
+      └── DeepSeek 精细润色 → 最终 match_overview (传给后续 LLM 叙事)
 ```
+
+### 6.2 与旧版 (Bing News v3) 对比
+
+| | v3 (Bing News) | v4 (豆包) |
+|:--|:--|:--|
+| 新闻来源 | Bing News 搜索 → 3篇文章URL | 豆包联网搜索 → 多源文章URL |
+| 文本生成 | 抓取HTML → 清洗 → DeepSeek改写 | 豆包直接生成摘要 |
+| 首发阵容 | 抓取不到 | 豆包直接输出完整首发 |
+| 关键事件 | 仅 SportMonks 数据 | 豆包 + SportMonks 互补 |
+| 图片 | alt 含队名 → 0~10张 | 四层匹配 → 最多30张 |
+| 步骤数 | 5步 (搜索→抓取→清洗→LLM改写→图片) | 2步 (搜索→摘要+图片) |
+| 费用 | DeepSeek改写 ~¥0.01 | 豆包3次搜索 ~¥0.05~0.15 |
 
 ---
 
-#### 管道 A: 战术报告 V2 (generate_tactical_report_v2)
+## 7. Playwright 渲染配置
 
-```
-Step A1. 四层因果模型计算 → tactical_data dict
-         └─ src/engine/tactical_insights.py
+战术时间轴 (timeline.png)、阵容图 (lineup.png)、球员卡片 依赖 Playwright 渲染 HTML → PNG。
 
-Step A2. LLM 战术叙事 (五段式: 画像/演绎/验证/博弈/定论)
-         └─ prompts/tactical.yaml + src/composer/tactical_prompt.py
+### 7.1 系统 Chrome 优先策略
 
-Step A3. 战术图表 ×5 (雷达/控球/射门/PPDA/PPDA时间线)
-         └─ src/visualizer/tactical_charts.py
+由于网络限制无法通过 `playwright install chromium` 下载 bundled Chromium，代码已改为**优先使用系统已安装的 Chrome**：
 
-Step A4. 压迫分析图表 ×2 (压迫效果图 + 压迫效率图)
-         └─ src/visualizer/tactical_charts.py
+- `src/visualizer/lineup.py` → `save_lineup_png()`
+- `src/visualizer/tactical_charts.py` → `save_timeline_png()`
 
-Step A5. LLM 压迫叙事 (四段式: 布局/回报/代价/总结)
-         └─ prompts/pressing.yaml + src/composer/pressing_prompt.py
+会自动检测以下路径：
+- `C:/Program Files/Google/Chrome/Application/chrome.exe`
+- `C:/Program Files (x86)/Google/Chrome/Application/chrome.exe`
 
-Step A6. 事件时间轴 + 阵容图 (HTML + PNG)
-         └─ src/visualizer/tactical_charts.py / lineup.py
+### 7.2 故障排查
 
-Step A7. 环节一: LLM 文章取名 → 10 标题 (战术向≥2/人物向≥2/数据向≥2)
-         ├─ prompts/article_naming.yaml
-         ├─ src/composer/article_naming_prompt.py
-         └─ → article_titles.json
-
-Step A8. 环节二: LLM 球员特稿推荐 → 看点/5标题/大纲/推荐指数
-         ├─ src/engine/player_feature_selector.py  (预筛选: 文章价值分)
-         ├─ src/engine/player_insights.py          (13 探测器标签)
-         ├─ src/engine/key_events.py               (关键事件判定)
-         ├─ prompts/player_feature_recommend.yaml
-         ├─ src/composer/player_feature_prompt.py
-         └─ → player_features.md
-
-Step A9. 保存战术数据 → tactical_analysis.json / .xlsx
-
-Step A10. 组装 HTML → tactical_report.html (8 大板块)
-          └─ _build_tactical_html() + _md_to_player_features_html()
-```
-
----
-
-#### 管道 B: 球员贡献 V6 (generate_player_contribution_v6)
-
-```
-Step B1. 读取 raw_data.json
-Step B2. run_v6() → 五维贡献计算 (C1-C5 z-score + 角色分类)
-         └─ src/engine/player_insights_v6.py
-Step B3. LLM 球员叙事 (29 人, 每人 ~80-120 字)
-         └─ prompts/player_analysis.yaml
-Step B4. → data/computed/{id}_players_v6.json
-Step B5. → data/computed/{id}_players_v6.xlsx (9 sheets)
-         └─ src/reporter/player_excel.py
-```
-
----
-
-#### 管道 C: 球员卡片 (generate_player_cards_v6, 仅 --cards-only)
-
-```
-Step C1. 读取 _players_v6.json
-Step C2. Playwright 渲染 HTML → PNG (29 张)
-         └─ generate_cards_v6.py
-Step C3. → output/{id}/player_cards/{Name}.png
-```
-
----
-
-### 5.2 三条管道对比
-
-| | 管道 A: 战术报告 | 管道 B: 球员贡献 | 管道 C: 球员卡片 |
-|---|---|---|---|
-| **触发** | 默认 | 默认 | `--cards-only` |
-| **LLM 调用** | 4 次 (战术/压迫/取名/特稿) | 2 次 (29人叙事) | 0 |
-| **图表** | 9 张 | 0 | 29 张 PNG |
-| **前置依赖** | `raw_data.json` | `raw_data.json` | 管道 B 完成 |
-| **可并行** | 与 B 并行 | 与 A 并行 | 不可 |
-
-### 5.3 核心模块清单
-
-| 模块 | 职责 |
-|------|------|
-| `src/collector/api_client.py` | SportMonks V3 客户端 + type_id 映射 + 全量数据解析 |
-| `src/engine/tactical_insights.py` | 四层因果战术模型 |
-| `src/engine/player_insights_v6.py` | v6 五维贡献检测引擎 |
-| `src/engine/player_insights.py` | 13 个球员探测器 (D1-D13) |
-| `src/engine/player_feature_selector.py` | 球员文章价值评分 + 预筛选 |
-| `src/engine/key_events.py` | 统一关键事件判定 |
-| `src/engine/signals.py` | 36 个信号检测器 |
-| `src/engine/trends.py` | 趋势分析 |
-| `src/engine/metrics.py` | CI/TCR/PE/LDI 自创指标 |
-| `src/composer/tactical_prompt.py` | 战术叙事 Prompt 组装 |
-| `src/composer/pressing_prompt.py` | 压迫分析 Prompt 组装 |
-| `src/composer/article_naming_prompt.py` | 文章取名 Prompt 组装 + 解析 |
-| `src/composer/player_feature_prompt.py` | 球员推荐 Prompt 组装 |
-| `src/composer/prompt_loader.py` | YAML 模板加载器 (Jinja2) |
-| `src/generator/llm_client.py` | DeepSeek LLM 客户端 |
-| `src/visualizer/tactical_charts.py` | 战术图表 + 压迫图表 + 时间轴 |
-| `src/visualizer/lineup.py` | 阵容图 (HTML + PNG) |
-| `src/reporter/player_excel.py` | v6 球员 Excel 9-sheet 导出 |
-| `generate_match_report.py` | 主调度器 + HTML 报告组装 |
-
-### 5.4 Prompt 模板清单
-
-| 文件 | 用途 | LLM 调用 |
-|------|------|---------|
-| `prompts/tactical.yaml` | 战术分析五段叙事 | 管道 A Step A3 |
-| `prompts/pressing.yaml` | 压迫分析四段式 | 管道 A Step A6 |
-| `prompts/match_overview.yaml` | ★ 比赛过程概述 v3 (web新闻润色) | 管道 A Step A2 |
-| `prompts/article_naming.yaml` | 文章取名 (含角度约束 + few-shot) | 管道 A Step A9 |
-| `prompts/player_feature_recommend.yaml` | 球员人物特稿推荐 | 管道 A Step A10 |
-| `prompts/player_analysis.yaml` | v6 球员叙事 (29人) | 管道 B Step B3 |
-
-### 5.5 首次运行示例
-
-```bash
-# 第一步：生成完整报告（产出 raw_data.json + tactical_report.html + _players_v6.json/.xlsx）
-python generate_match_report.py 19683241
-
-# 第二步：生成球员卡片 PNG（依赖第一步的 _players_v6.json）
-python generate_match_report.py 19683241 --cards-only
-
-# 第三步（可选）：生成球员对比图
-python compare_players.py 19683241 "Declan Rice" "Vitinha"
-```
-
----
-
-## 6. 关键适配：SportMonks type_id 体系
-
-⚠️ **SportMonks 用整数 `type_id` 编码所有统计和事件，不使用字段名。** 映射表集中在 `src/collector/api_client.py`。
-
-### 6.1 球队统计映射 (`FIXTURE_STAT_MAP`)
-
-40 项球队级指标，完整列表见 `design/SportMonks统计指标全集.md`。
-
-### 6.2 球员统计映射 (`PLAYER_STAT_MAP`)
-
-已从 25 项扩展到 **49 项**，含高阶数据：
-
-```python
-PLAYER_STAT_MAP: dict[int, str] = {
-    # 基础
-    118: "rating",           119: "minutes_played",
-    40: "captain",           1490: "man_of_match",
-    120: "touches",
-    # 射门/进球
-    52: "goals",             79: "assists",
-    42: "shots_total",       86: "shots_on",
-    47: "penalties",
-    # 传球
-    80: "passes_total",      117: "passes_key",
-    1584: "passes_accuracy", 27269: "passes_final_third",
-    98: "crosses",
-    # 防守
-    78: "tackles_total",     100: "tackles_interceptions",
-    27268: "tackles_won_pct", 97: "blocked_shots",
-    101: "clearances",       27271: "ball_recoveries",
-    57: "saves",
-    # 对抗
-    105: "duels_total",      106: "duels_won",
-    # 盘带
-    108: "dribbles_attempts", 109: "dribbles_success",
-    # 犯规
-    56: "fouls_committed",   96: "fouls_drawn",
-    84: "yellowcards",       83: "redcards",
-    # 失误
-    571: "error_lead_to_goal", 27273: "possession_lost",
-    # 高阶 (需套餐支持)
-    5304: "xg",              5305: "xgot",
-    9685: "shooting_performance",
-}
-```
-
-### 6.3 事件类型映射 (`_parse_events`)
-
-基于 fixture 19683241 (PSG vs Arsenal 含加时+点球大战) 实测验证：
-
-| type_id | 含义 | event_type | detail |
-|--------:|------|:---:|------|
-| 10 | 点球判罚 | Info | penalty_awarded |
-| 14 | 运动战进球 | Goal | goal |
-| 15 | 射门尝试 | Shot | shot_attempt |
-| 16 | 点球进球 | Goal | goal_penalty |
-| 17 | 点球罚失 | Goal | missed_penalty |
-| 18 | 换人 | subst | substitution |
-| 19 | 黄牌 | Card | yellowcard |
-| 20 | 两黄变红 | Card | yellowredcard |
-| 21 | 直红 | Card | redcard |
-| 22 | 点球大战罚失/被扑 | Goal | pen_shootout_miss |
-| 23 | 点球大战进球 | Goal | pen_shootout_goal |
-| 55 | VAR 介入 | VAR | var |
-
-⚠️ **换人事件**：SportMonks 中 `player_name` = 换上球员，`related_player_name` = 换下球员（与 API-Football 相反）。
-⚠️ **进球事件**：`related_player_name` = 助攻者 → `assist_name`。
-⚠️ **MatchEvent 含 `period_id`**：区分常规时间(1-2)、加时赛(3-4)、点球大战(5)。
-
-### 6.4 趋势数据 (`trends`) 结构
-
-API 返回 ~1500-1700 条逐分钟累积记录。解析后结构：
-```python
-trends: dict[int, dict[int, list[TrendPoint]]]
-#         participant_id → type_id → [TrendPoint(minute, value, period_id), ...]
-```
-
-常出现的 type_id：80(传球), 43(进攻), 106(赢得对抗), 45(控球), 98(传中), 42(射门), 44(威胁进攻), 27271(球权回收) 等。
-
-### 7.5 认证方式
-
-```python
-# SportMonks: api_token 作为 query param
-requests.get(url, params={"api_token": token, "include": "..."})
-```
-
----
-
-## 7. 信号检测系统
-
-36 个检测器分 7 大类，每个返回 `SignalResult(name, category, strength, evidence, narrative_hint)`。
-
-### 7.1 A. 比分背离 (Score Deviation) — 6 个
-
-| 检测器 | 触发条件 |
-|--------|---------|
-| `xg_upset` | xG 劣势方赢了比赛 (xG gap > 0.3) |
-| `conversion_anomaly` | 射门转化率异常高或异常低 |
-| `penalty_decided` | 点球进球数 ≥ 分差 |
-| `red_card_turning` | 红牌后比分走势逆转 |
-| `own_goal_impact` | 乌龙球直接决定了比赛结果 |
-| `late_winner` | 75 分钟后进球改变了胜者 |
-
-### 7.2 B. 效率撕裂 (Efficiency Tear) — 6 个
-
-| 检测器 | 触发条件 |
-|--------|---------|
-| `possession_waste` | 高控球但低 xG（控球无效） |
-| `counter_attack_efficiency` | 低控球但每次射门 xG 极高 |
-| `pass_efficiency_gap` | 双方关键传球率差距 > 3% |
-| `shot_quality_gap` | 双方 xG/shot 差距 ≥ 2 倍 |
-| `corner_efficiency` | 角球直接/间接进球 ≥ 2 个 |
-| `big_chance_conversion` | 绝佳机会错失率 > 60% |
-
-### 7.3 C. 个人英雄/罪人 (Individual) — 6 个
-
-| 检测器 | 触发条件 |
-|--------|---------|
-| `one_man_team` | 单人包办全队 ≥ 75% 进球 |
-| `gk_hero` | 门将扑救 ≥ 5 次 |
-| `gk_disaster` | 丢球 3+ 且扑救成功率 < 50% |
-| `super_sub` | 替补出场贡献球+助 ≥ 3 分 |
-| `fatal_error` | `error_lead_to_goal` > 0 |
-| `rating_paradox` | 高分但基础数据差 |
-
-### 7.4 D. 结构性问题 (Structural) — 6 个
-
-| 检测器 | 触发条件 |
-|--------|---------|
-| `wing_domination` | 传中次数差距 ≥ 2.5 倍 |
-| `attack_channel_bias` | 单路进攻占比 > 50% |
-| `aerial_domination` | 成功头球差距 ≥ 2 倍 |
-| `tactical_fouls` | 犯规多但黄牌少（聪明的战术犯规） |
-| `sub_timing_impact` | 早期换人 (< 30') 或拖延时间换人 (≥ 85') |
-| `formation_mismatch` | 禁区外射门 > 禁区内 ×1.5 |
-
-### 7.5 E. 叙事钩子 (Narrative) — 6 个
-
-| 检测器 | 触发条件 |
-|--------|---------|
-| `mirror_match` | 5 项指标双方差距 < 25% |
-| `high_scoring` | 总进球 ≥ 5 |
-| `clean_sheet` | 一方零封 |
-| `comeback` | 先落后再逆转 |
-| `draw_drama` | 平局但 xG 差大 |
-| `rare_event` | 3+ 中框 / 2+ 红牌 |
-
-### 7.6 F. 淘汰赛专项 (Knockout) — 8 个
-
-| 检测器 | 触发条件 |
-|--------|---------|
-| `halftime_adjustment` | 上下半场射门差逆转 |
-| `extra_time_collapse` | 加时赛射门率降 > 50% |
-| `penalty_shootout_hero` | 点球大战有人罚失 |
-| `lead_protect_mode` | 控球率从 >55% 骤降至 <45% |
-| `et_sub_impact` | 加时赛有换人 |
-| `diff_stage_rhythm` | 不同阶段射门数差 ≥ 3 倍 |
-| `period_goal_cluster` | 单时段 3+ 进球 |
-| `dominant_et` | 加时赛射门 ≥ 3 倍对手 |
-
-### 7.7 G. 趋势驱动 (Trends) — 6 个
-
-| 检测器 | 触发条件 |
-|--------|---------|
-| `rhythm_swing` | 比赛节奏主导权转换 ≥ 3 次 |
-| `duel_decay_alert` | 对抗成功率前后半场衰减 > 20% |
-| `stamina_fade` | 压迫效率后半段衰减 > 20% |
-| `tactical_shift` | 长传/短传或传中/进攻比例显著变化 |
-| `turning_point_alert` | 趋势数据检测到多个转折点 |
-| `momentum_surge` | 进攻速率在某时刻急剧攀升 |
-
-### 信号筛选策略
-
-`get_top_signals()` 先按类别各取最强信号，再从剩余中按强度补齐至 Top 6，确保报告角度多样性。
-
----
-
-## 8. 自创指标速查（辅助参考）
-
-| 指标 | 公式（核心） | 范围 | 数据源 |
-|---|---|---|---|
-| **CI** 控制指数 | 0.35×控球 + 0.25×传球 + 0.25×区域 + 0.15×回收 | 0-100 (两队之和=100) | Possession%, Pass%, Shots insidebox, Corners, Ball Recoveries |
-| **TCR** 威胁转化率 | 100×(xG+0.3×绝佳机会)/(射门+0.3×角球) | 通常 2-35 | xG, Big Chances, Total Shots, Corners |
-| **PE%** 压迫效率 | 100×(回收/(犯规+1)) / 双方之和 | 0-100 | Ball Recoveries, Fouls |
-| **LDI** 运气偏离 | P(实际比分)/P(最可能比分) | 0-1+ | xG + 蒙特卡洛模拟 |
-
-> 注：自创指标在 v2 中降级为辅助参考。报告叙事主要由信号检测器驱动，不再围绕 CI/TCR/PE 展开。
-
----
-
-## 9. 降级策略
-
-| 场景 | 策略 |
-|---|---|
-| `scipy` 未安装 | → 尝试 `numpy.random.poisson` |
-| `numpy` 未安装 | → 纯 Python Knuth 算法，模拟次数降至 2000 |
-| `matplotlib` / `mplsoccer` 未安装 | → `--no-images` 跳过图表 |
-| `openai` SDK 未安装 | → LLMClient 自动降级为 `requests` HTTP POST |
-| xG 无球队级 | → 从球员 xG(5304) 汇总 |
-| Ball Recoveries 无球队级 | → 从球员 ball_recoveries(27271) 汇总 |
-| Trends 数据为空 | → 趋势驱动 6 个检测器跳过，其余 30 个正常执行 |
-| Periods 数据为空 | → 淘汰赛专项 8 个检测器降级为通用逻辑 |
-| 中文方框 | → `src/visualizer/__init__.py` 已配置 SimHei / Microsoft YaHei |
-
----
-
-## 10. 调试建议
-
-### 10.1 快速验证管线（不含 LLM）
-```bash
-python generate_match_report.py 19683241 --no-llm
-```
-只拉数据 + 指标计算 + 图表，不调 LLM。检查 `data/raw/{id}/raw_data.json` 和 `output/` 下的报告。
-
-### 10.2 查看检测到的信号
-```bash
-python -c "
-import json; d=json.load(open('data/computed/19683241.json','r',encoding='utf-8'))
-for s in d.get('signals', []):
-    print(f\"{s['strength']:.2f} [{s['category']}] {s['name']}: {s['narrative_hint'][:80]}\")
-"
-```
-
-### 10.3 查看趋势数据中的可用 type_id
-```python
-import json
-raw = json.load(open("data/raw/19683241/raw_data.json", "r", encoding="utf-8"))
-trends = raw.get("trends", {})
-for pid, type_dict in trends.items():
-    print(f"Participant {pid}: types = {list(type_dict.keys())[:20]} ...")
-```
-
-### 10.4 单模块重跑
-```python
-from src.collector.api_client import fetch_all
-import yaml
-config = yaml.safe_load(open("config.yaml"))
-raw = fetch_all(19683241, config["sportmonks"])
-
-# 趋势分析
-from src.engine.trends import analyze_trends
-ta = analyze_trends(raw)
-print(f"Turning points: {len(ta.turning_points)}")
-print(f"Duel decay home: {ta.duel_decay_home}")
-print(f"Pressing fade: H={ta.pressing_fade_home:.3f} A={ta.pressing_fade_away:.3f}")
-
-# 信号检测
-from src.engine.signals import detect_all, get_top_signals
-from src.engine.metrics import compute_all
-computed = compute_all(raw)
-all_sigs = detect_all(raw, None, ta)
-for s in get_top_signals(all_sigs, 6):
-    print(f"  {s.strength:.2f} [{s.category}] {s.name}")
-```
-
-### 10.5 验证 xG / Recoveries 采集
-```python
-import json
-raw = json.load(open("data/raw/19683241/raw_data.json", "r", encoding="utf-8"))
-home_xg = sum(p.get("xg", 0) or 0 for p in raw["home_players"])
-away_xg = sum(p.get("xg", 0) or 0 for p in raw["away_players"])
-home_rec = sum(p.get("ball_recoveries", 0) or 0 for p in raw["home_players"])
-print(f"xG: H={home_xg:.4f} A={away_xg:.4f}  Recoveries: H={home_rec}")
-```
-
-### 10.6 检查 LLM 是否可用
-```bash
-python -c "from src.generator.llm_client import LLMClient; import yaml; c=LLMClient(yaml.safe_load(open('config.yaml'))['llm']); print(c.generate('你是翻译','将hello翻译成中文'))"
-```
-
----
-
-## 11. 已知问题与待办
-
-- [x] ~~API-Football 抢断/球权回收缺失~~ → SportMonks 已解决
-- [x] ~~球场Logo未显示~~ → SportMonks 提供 `image_path`
-- [x] ~~图表中文方框~~ → 已配置中文字体 SimHei/YaHei
-- [x] ~~换人方向搞反~~ → 已修正 (player_name=换上, related_player_name=换下)
-- [x] ~~事件类型映射错误 (22/23 = VAR/OwnGoal)~~ → 实测修正为点球大战
-- [x] ~~xG 不可用~~ → 球员级 5304/5305 已接入
-- [x] ~~固定模板套所有比赛~~ → v2 信号驱动动态叙事
-- [x] ~~9 次 LLM 调用太慢~~ → v2 单次叙事调用
-- [x] ~~未利用 trends 数据~~ → 已接入逐分钟趋势 + 趋势驱动6个检测器
-- [x] ~~未利用 periods 数据~~ → 已接入分时段统计 + 淘汰赛专项8个检测器
-- [ ] Shot Map 坐标 — SportMonks events 不返回射门 (x,y) 坐标
-- [ ] PPDA (压迫强度) — 无直接数据，但 trends 中可间接计算
-- [ ] Pass Network 数据 — 当前 `home_lineup.players` 为空，传球网络图数据不足
-- [ ] 15+ 个未识别球员级 type_id (111/114/115/571/584 等)
-
----
-
-## 12. 多环境迁移清单
-
-1. `git clone` 本项目
-2. `pip install requests pyyaml matplotlib mplsoccer numpy scipy openai markdown jinja2 openpyxl playwright`
-3. `playwright install chromium`
-4. 设置环境变量 `SPORTMONKS_API_TOKEN` 和 `DEEPSEEK_API_KEY`（或直接写入 config.yaml）
-5. `python -c "from src.collector.api_client import SportMonksClient; print('OK')"` → 验证导入
-6. `python generate_match_report.py 19683241 --no-llm` → ★ 验证统一管线（战术V2+球员V6，不含LLM）
-7. `python generate_match_report.py 19683241` → ★ 完整生成（含 LLM 叙事 + 图表）
-8. `python generate_match_report.py 19683241 --cards-only` → 生成全体球员 PNG 卡片
-
----
-
-## 13. 球员贡献检测器 v6
-
-### 13.1 概述
-
-v6 采用**两层叙事模型**，从 66 项球员级指标出发，输出七维贡献向量 + LLM 球员分析。
-
-**设计文档**：[`design/球员贡献检测器方案-v6.md`](design/球员贡献检测器方案-v6.md)
-
-### 13.2 快速启动
-
-```bash
-# 完整管线（Excel + JSON）
-python run_player_v6.py                         # 三场默认比赛
-python run_player_v6.py 19683241                # 单场
-
-# 生成卡片 PNG（依赖已生成的 JSON）
-python generate_cards_v6.py 19683241            # 全体球员
-python generate_cards_v6.py 19683241 --key-only # 仅关键球员
-python generate_cards_v6.py 19683241 --player "Declan Rice"  # 指定球员
-```
-
-### 13.3 Layer 1：七维贡献模型
-
-| 维度 | 简称 | 副标题 | 指标数 | 核心正指标 |
-|------|------|--------|:---:|------|
-| C1 进攻 | 进攻 | 创造机会，转化进球 | 15 | goals, xg, assists, shots_on, big_chances_created |
-| C2 推进 | 推进 | 构建攻势，推进阵地 | 12 | passes_final_third, dribbles_success, crosses |
-| C3 控制 | 控制 | 掌控节奏，寻找机会 | 8 | passes_total, passes_accuracy, touches |
-| C4 防守 | 防守 | 抢断拦截，阻止得分 | 10 | tackles, clearances, blocked_shots, ball_recoveries |
-| C5 对抗 | 对抗 | 积极拼抢，拿下球权 | 13 | duels_won, aerials_won, ball_recoveries |
-| C6 关键事件 | — | — | 8 种事件 | 绝杀(+4.5), 制胜球(+4.0), 首开记录(+3.0), 点球大战进球(+1.5) |
-| C7 门将 | — | — | 4-D per-90 | saves, xgot_faced, punches |
-
-**算法**：`zscore_composite_v6()` — 每个指标组内 Z-score × 权重 → 求和 → `tanh(x/6.0)*6.0` 软封顶。
-
-### 13.4 Layer 2：LLM 球员分析
-
-**分析范围**：所有出场 ≥15 分钟的球员（含门将），分两类：
-
-| 类型 | 定义 | 交给 LLM 的数据 |
-|------|------|---------------|
-| **关键球员** | 任一项 C1-C5 队内排名 ≤5 且 zscore > 0 | 仅优势维度指标 |
-| **其他球员** | 非关键 + 门将 | 全部 C1-C5 维度指标 |
-
-**提示词**：[`prompts/player_analysis.yaml`](prompts/player_analysis.yaml)
-- 风格：张佳玮的诗意画面 + 内德的数据洞见
-- 要求：引用具体指标数值、结合关键事件和比赛结果、不贬低、90-150 字
-- 分批调用：每批 ≤15 球员，动态 max_tokens
-- 回退：LLM 不可用时退回余弦相似度角色推断（14 种原型角色）
-
-### 13.5 输出物
-
-| 格式 | 路径 | 内容 |
+| 错误 | 原因 | 解决 |
 |------|------|------|
-| **Excel** | `data/computed/{id}_players_v6.xlsx` | 9 sheets: 概要 + C1-C5 明细(含队排/场排) + C6 事件 + C7 门将 + 角色叙事 |
-| **JSON** | `data/computed/{id}_players_v6.json` | 结构化数据，供卡片/下游消费 |
-| **PNG 卡片** | `output/{id}_.../cards/{player}.png` | 头像 + 姓名 + 事件 + LLM 评语 + 七维卡片网格 + 排名高亮 |
-
-### 13.6 调试
-
-```bash
-# 查看 JSON 数据结构
-python -c "import json; d=json.load(open('data/computed/19683241_players_v6.json','r',encoding='utf-8')); p=d[0]; print(p['name'], list(p['contributions'].keys()), p.get('llm_summary','')[:60])"
-
-# 查看关键识别逻辑触发情况
-python -c "
-import json; d=json.load(open('data/computed/19683241_players_v6.json','r',encoding='utf-8'))
-for p in d:
-    for ck in ['C1','C2','C3','C4','C5']:
-        c = p['contributions'].get(ck,{})
-        if c.get('rank',99) <= 5 and c.get('zscore',0) > 0:
-            print(f\"{p['name']} {ck}: rank={c['rank']} z={c['zscore']}\")
-            break
-"
-```
-
-### 13.7 核心文件
-
-| 文件 | 行数 | 职责 |
-|------|:---:|------|
-| `src/engine/player_insights_v6.py` | ~1350 | 核心引擎：数据结构/七维计算/LLM 调用/排名 |
-| `src/engine/key_events.py` | ~210 | 统一关键事件判定（首开/绝杀/制胜/点球大战） |
-| `src/reporter/player_excel.py` | ~480 | Excel 9-sheet 导出 |
-| `src/generator/llm_client.py` | ~95 | DeepSeek API（OpenAI SDK + HTTP 回退） |
-| `run_player_v6.py` | ~140 | 入口脚本 |
-| `generate_cards_v6.py` | ~460 | Playwright HTML→PNG 卡片生成 |
-| `prompts/player_analysis.yaml` | ~45 | LLM 分析提示词模板 |
+| `Executable doesn't exist at ...chrome-headless-shell.exe` | Playwright Chromium 未安装 | 安装系统 Chrome 即可，代码会自动使用 |
+| `BrowserType.launch: ...` | 无可用浏览器 | 确保系统安装了 Google Chrome |
 
 ---
 
-## 14. Web 战报抓取模块 (fetch_match_context.py)
+## 8. 实验脚本
 
-### 14.1 概述
+以下脚本用于验证特定功能，不参与正式报告生成管线：
 
-从中文新闻源获取比赛的赛前/战报/赛后新闻及图片，用于替代原 LLM "凭空创作"式比赛过程概述，改为基于真实新闻 + 数据锚定的润色模式。
+| 脚本 | 功能 | 用法 |
+|------|------|------|
+| `experiment_doubao_search.py` | 验证豆包联网搜索赛前/赛况/赛后 | `python experiment_doubao_search.py` |
+| `experiment_search_and_images.py` | 豆包搜索 + 图片提取一体化 | `python experiment_search_and_images.py 法国 塞内加尔` |
+| `experiment_image_hunt.py` | 三策略图片猎手（图集搜索+Bing+新闻） | `python experiment_image_hunt.py 法国 塞内加尔` |
+| `experiment_image_search.py` | 豆包图片搜索能力测试 | `python experiment_image_search.py` |
 
-**核心原则**：match.txt 只保留本场比赛内容，排除多场汇总文章中的无关场次（如"德国7-1库拉索"的进球行）。
+实验产出位于 `output/doubao_experiment/` 目录。
 
-### 14.2 用法
+---
+
+## 9. 图片过滤策略
+
+`generate_match_report.py` 内嵌的 `_extract_images_from_page()` 使用多层过滤：
+
+### 9.1 黑名单过滤
+
+**URL/alt 黑名单** (直接丢弃)：
+- `beacon`, `tracking`, `pixel`, `doubleclick`, `analytics` (追踪像素)
+- `logo`, `icon`, `avatar`, `qr`, `ewm`, `share` (图标/头像)
+- `arrow`, `btn`, `close`, `weixin`, `wechat`, `code` (UI元素)
+- `homepage`, `default`, `fileftp`, `login`, `placeholder`, `blank` (占位)
+- `/user/`, `discusser`, `bg@`, `top-video`, `inside-top` (头像/背景)
+- `style/`, `static.`, `favicon`, `emoticon` (样式/表情)
+
+### 9.2 四级匹配排序
+
+| Level | 条件 | 优先级 |
+|-------|------|--------|
+| 1 | alt 或 URL 含球队中/英文名 | 最高 |
+| 2 | alt 或 URL 含通用足球关键词 + Top6球员名 | 高 |
+| 3 | 父元素文本含队名 | 中 |
+| 4 | 无匹配但通过格式/尺寸过滤 | 低（兜底） |
+
+最终按 level 排序，Level 1-3 优先下载。最多下载 30 张，最小 5KB。
+
+### 9.3 队名中文映射
+
+内嵌 `_NAME_MAP_DB` 字典支持中英文队名匹配：
+```
+netherlands→荷兰, japan→日本, england→英格兰, france→法国,
+germany→德国, spain→西班牙, italy→意大利, portugal→葡萄牙,
+argentina→阿根廷, brazil→巴西, sweden→瑞典, tunisia→突尼斯,
+korea→韩国, south korea→韩国
+```
+
+---
+
+## 10. 常见问题与故障排查
+
+### 10.1 豆包 API
+
+| 错误 | 原因 | 解决 |
+|------|------|------|
+| `InvalidEndpointOrModel.NotFound` (404) | 模型名格式错误 | 使用连字符格式 `doubao-seed-2-0-pro-260215`，不用点号格式 |
+| `ToolNotOpen` | 联网搜索插件未开通 | 到火山引擎控制台开通联网内容插件 |
+| 返回内容为空 | search 返回 annotations 但无 output_text | 检查 prompt 是否要求了文本输出 |
+
+### 10.2 图片下载
+
+| 症状 | 原因 | 解决 |
+|------|------|------|
+| web_context/images 图片太少 | 队名匹配过严 | 当前已有 Level 1-4 分级过滤 + 兜底 |
+| 图片与比赛无关 | 兜底太宽，收了头像/背景图 | alt 黑名单已过滤 avatar/header/bg@ 等 |
+| 某篇文章 0 张图片 | 文章是纯文本 | 正常；或页面用了 JS 懒加载，需检查 `data-lazy-src` 等属性 |
+
+### 10.3 Playwright
+
+| 错误 | 解决 |
+|------|------|
+| Chromium 未安装 | 代码已改为使用系统 Chrome，无需单独安装 |
+| 如果系统也没有 Chrome | 安装 Google Chrome 或通过 `playwright install chromium`（可能需要代理） |
+
+### 10.4 DeepSeek
+
+| 症状 | 原因 | 解决 |
+|------|------|------|
+| `_generate_http` 缺失 | DoubaoClient class 插入位置错误打断了 LLMClient 方法 | 确保 DoubaoClient 是独立 class，在 LLMClient 之后定义 |
+| LLM 返回空 | prompt 太长或网络超时 | 已设 max_tokens=2048，自动重试 3 次 |
+
+---
+
+## 11. 关键代码位置速查
+
+| 你想... | 去这里 |
+|---------|--------|
+| 修改豆包搜索 Prompt | `generate_match_report.py` → `prompts` 字典 (第 ~129 行) |
+| 修改图片过滤规则 | `generate_match_report.py` → `_extract_images_from_page()` 内嵌函数 (第 ~172 行) |
+| 修改图片下载数量 | `generate_match_report.py` → `if len(downloaded) >= 30:` (第 ~284 行) |
+| 修改 DeepSeek LLM 配置 | `config.yaml` → `llm` 节点 |
+| 修改豆包 API 配置 | `config.yaml` → `doubao` 节点 |
+| 新增球队中文名 | `generate_match_report.py` → `_NAME_MAP_DB` 字典 |
+| 修改球员卡片样式 | `generate_cards_v6.py` |
+| 修改战术图表样式 | `src/visualizer/tactical_charts.py` |
+| 修改阵容图样式 | `src/visualizer/lineup.py` |
+| 修改球员对比图样式 | `src/visualizer/player_comparison.py` |
+| 运行图片猎手实验 | `python experiment_image_hunt.py <队名1> <队名2>` |
+
+---
+
+## 12. 近期方案更新 (2026-06-18)
+
+### 12.1 球员对比图 — 图表区改为 2×2 网格
+
+**变更前**：3 行逐行对比（热图/传球/带球），A/B 左右并排，每行高 2.10"，图表区高度随图片数量线性增长。
+
+**变更后**：每球员一个独立 2×2 紧凑网格，双方网格左右并排。
+
+```
+┌──────────────┐    ┌──────────────┐
+│ 热图  │ 传球 │    │ 热图  │ 传球 │
+├───────┼──────┤    ├───────┼──────┤
+│ 带球  │ 射门★│    │ 带球  │ 射门★│
+└──────────────┘    └──────────────┘
+    Player A            Player B
+```
+
+**改动文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `src/visualizer/player_comparison.py` | 删除 `_draw_charts_row()` + `_draw_chart_card()` → 新增 `_draw_charts_2x2()`；`build_player_comparison_data()` 新增 `shot_chart_b64` 参数及返回；`chart_types` 新增 `("shot_chart_b64", "射门")`；`charts_h` 计算改为固定网格高度；新增 `from io import BytesIO` |
+| `compare_players.py` | 加载 `shot_chart.png` + 传递 `shot_chart_b64` 参数给 `build_player_comparison_data()` |
+
+**关键参数**（`_draw_charts_2x2`）：
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `grid_cell_w` | `(info_panel_w - 0.24) / 2` | 每格宽 |
+| `grid_cell_h` | 1.30 | 每格高（图片+标签） |
+| `grid_gap` | 0.08 | 格间距 |
+| `img_h` | `grid_cell_h - 0.28` | 图片区高度 |
+
+**缺失处理**：图表缺失时显示浅色圆角空框 + 居中浅灰色斜体「无数据」。
+
+### 12.2 球员汇总卡片 — 基本信息双列指标
+
+**变更**：`_draw_player_info_card()` 从单列 3 项（进球/助攻/关键事件）改为双列 7 项：
+
+| 左列 | 右列 |
+|------|------|
+| 进球 | 关键事件 |
+| 助攻 | 传球 |
+| 射门 | 传球成功率 |
+| xG | |
+
+数据源：`goals`/`assists`/`key_events` 来自 player dict 顶层，`shots`/`xG` 从 `dim_tables["进攻"]` 提取，`passes`/`pass_pct` 从 `dim_tables["控制"]` 提取。
+
+`card_h`：1.85 → 2.30（容纳双列指标）。
+
+### 12.3 雷达图网格颜色与线宽增强
+
+| 参数 | 变更前 | 变更后 |
+|------|--------|--------|
+| `GRID_COLOR` | `#2a2a4a`（与背景色相近） | `#4a5a7a` |
+| 网格线宽 | 0.5 | 0.7 |
+| 网格 alpha | 0.5 | 0.7 |
+| 轴线线宽 | 0.5 | 0.7 |
+| 轴线 alpha | 0.4 | 0.6 |
+
+### 12.4 分区标签文案统一
+
+所有图表区分区标签统一为「球员活动对比」：
+- `— 比赛视觉分析 —` → `— 球员活动对比 —`
+- `— Player Map 对比 —` → `— 球员活动对比 —`
+- 注释中的 `Player Map 标签` → `球员活动对比 标签`
+
+### 12.5 球员点评文字优化
+
+`_draw_llm_narrative()` 布局重构：
+
+| 参数 | 变更前 | 变更后 | 说明 |
+|------|--------|--------|------|
+| 标题字号 | 9.5 | **10.5** | 更大更醒目 |
+| 正文字号 | 8.5 → 9.0 → | **10.0** | 经两次迭代最终确定 |
+| 正文行距 | 0.22 | **0.18** | 更紧凑 |
+| 正文对齐 | ha="left"（左对齐） | **ha="center"（居中）** | |
+| 正文字重 | 普通 | **fontweight="bold"（加粗）** | |
+| 标题-正文间距 | 无精确控制 | **title_y - 0.14** | 明确预留 0.14 间距，避免标题正文重叠 |
+| 底部留白 | 无 | **y_bot + 0.10** | 明确底部留白 |
+| 换行宽度 | width=18（左对齐时） | **width=14**（居中适应面板宽度） | |
+
+### 12.6 全卡字体统一放大
+
+全部字体在原有基准上增大 1-2pt：
+
+| 区域 | 元素 | 字体大小 |
+|------|------|----------|
+| 球员基本信息 | 姓名#号码 | 10 → **11** |
+| | 出场时间 | 8.5 → **9.5** |
+| | 跑动/推进 | 8 → **9** |
+| | 双列指标标签+值 | 8.5 → **9.5** |
+| 雷达图 | 维度标签 | 9 → **10.5** |
+| | 图例球员名 | 7 → **8** |
+| 图表区 | 分栏标题 "球员活动对比" | 8.5 → **10** |
+| | 球员名+图表标签 | 7.5 → **9** |
+| | 占位符 "暂无数据/加载失败" | 7 → **8** |
+| 维度表格(detail) | 表头 | 6.5 → **7.5** |
+| | 行数据 | 7 → **8** |
+
+### 12.7 赛后融合报道生成
 
 ```bash
-# 输出到终端
-python fetch_match_context.py 荷兰 日本
-
-# 保存到指定目录（复用 match_id 自动推断队名 + 输出路径）
-python fetch_match_context.py 19609138
-
-# 单项模式
-python fetch_match_context.py 荷兰 日本 --mode pre    # 仅赛前
-python fetch_match_context.py 荷兰 日本 --mode match  # 仅战报
-python fetch_match_context.py 荷兰 日本 --mode post   # 仅赛后
-python fetch_match_context.py 荷兰 日本 --mode image  # 仅图片
+python generate_fusion_report.py 19609149
 ```
 
-**输出版本**：
-- `python 荷兰 日本 --save output_dir` → 保存到指定路径
-- `python 19609138` → 自动读取 `data/raw/19609138/raw_data.json` 获取队名，保存到 `output/19609138_Netherlands_vs_Japan/web_context/`
-
-### 14.3 架构
-
-```
-fetch_match_context.py
-├── search_news_bing()             → Bing News API 搜索
-├── search_news_bing_with_fallback() → 搜索失败时换备选词重试
-├── _extract_text_from_html()      → HTML → 纯文本（移除 script/style/nav/header）
-├── _extract_images_from_html()    → 比赛图片提取（优先 alt 队名，兜底 URL 年份）
-├── _fetch_article_raw()           → 抓取单篇文章（含 AI 标记过滤）
-├── _clean_text(text, home, away, mode)  → 行级队名过滤 + 广告排除
-│   └── mode="match" 额外排除外来队名行（德国/库拉索等）
-├── fetch_match_context()          → 比赛战报
-├── fetch_pre_match_context()      → 赛前首发/前瞻
-├── fetch_post_match_context()     → 赛后复盘/纪录
-├── fetch_all_context()            → 三合一
-└── save_context_to_dir()          → 保存到 output/.../web_context/
-```
-
-### 14.4 搜索词设计
-
-| 模式 | 搜索词 | 备选 |
-|------|--------|------|
-| match | `{主队} {客队} 战报` | `{主队} {客队} 世界杯 比分` |
-| pre | `世界杯 {主队} {客队} 前瞻 首发 阵容` | — |
-| post | `{主队} {客队} 世界杯 全场比赛` | — |
-
-### 14.5 域名策略
-
-| 优先级 | 域名 | 说明 |
-|--------|------|------|
-| 优先 | chinanews.com, news.cn, xinhuanet.com, cctv.com, sina.com.cn, gmw.cn, qzwb.com | 权威中文新闻源 |
-| 跳过 | sohu.com, 163.com, toutiao.com, baidu.com, msn.com, msn.cn | AI 农场 / SSL 问题 |
-
-### 14.6 文本清洗策略
-
-`_clean_text` 按 mode 分级：
-
-| mode | 保留规则 | 排除规则 |
-|------|---------|---------|
-| match | 行含主客队名关键词（如 "荷兰队" "日本"） | 外来队名上下文（"德国队成世界杯" "恩梅查" "欧非对话"）+ 广告 |
-| pre/post | 同上 | 广告关键词 |
-
-### 14.7 集成到 generate_match_report.py
-
-pipeline 中新增 Step A1.5：
-
-```
-raw_data.json
-    ├── [A1] 四层因果模型
-    ├── [A1.5] fetch_match_context(home, away) → web_context/
-    ├── [A2] match_overview (LLM v3)
-    │       输入: web_context/match.txt + key_events(数据锚定)
-    │       输出: 300-500 字新闻战报概述
-    ├── [A3] 战术叙事 (依赖 A2)
-    ├── [A6] 压迫叙事 (依赖 A2)
-    ├── [A9] 文章取名 (依赖 A2+A3)
-    └── [A10] 球员特稿 (依赖 A2+A3)
-```
-
-### 14.8 已知局限
-
-- sina CDN 部分图片 SSL 协议层错误（`verify=False` 无效），可能下载失败
-- Bing News 偶发限流返回 0 结果（已有 fallback 搜索词）
-- 赛前新闻来源质量不稳定（前瞻文章较少）
-
-### 14.9 match_overview v3 反幻觉约束
-
-`prompts/match_overview.yaml` v3 新增严格约束：
-
-- **禁止计数断言**："第X次扳平""第X次落后""第X次追平"等需要计数的表述被严格禁止，LLM 只能描述单次进球和比分变化
-- **数据锚定优先**：当 web 新闻与结构化事件数据矛盾时，以事件数据为准
-- **新闻为主要素材**：LLM 只做润色和整合，不凭空编造细节
-
-实测效果：19609138 荷日战，v2 输出"第三次扳平比分"（幻觉），v3 输出"将比分追成1比1""将比分改写为2比2"（事实准确）。
-
-### 14.10 文章命名 fallback 解析器
-
-`generate_match_report.py` 中的 `parse_article_titles()` 要求输出分角标题（`【战术向】`等）+ `《标题》` 格式。LLM 返回格式可能不稳定导致解析出 0 条。
-
-新增 `_fallback_parse_titles()` 作为容错方案：
-- 不要求角度分组，直接从文本中提取所有 `《X》— 理由` 模式的行
-- 解析结果标记为"自由角度"
-- 上限 10 条
-- raw 响应 + 解析结果保存到 `tactical_analysis.json._article_naming`
-
-同时 `prompts/article_naming.yaml` 新增事实准确性约束：标题不得编造新闻中不存在的数据或事件。
+将战术分析段落 + 压迫分析段落 + 关键事件 + 新闻摘要融合为一篇战术+叙事综合比赛报道（HTML + Markdown），产出到 `output/{id}/fusion_report.html`。包含三个 LLM 调用步骤：战术叙事 → 压迫叙事 → 融合组装。
