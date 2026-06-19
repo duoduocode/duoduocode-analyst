@@ -10,6 +10,8 @@
   python generate_fusion_report.py 19609143 --no-html
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging

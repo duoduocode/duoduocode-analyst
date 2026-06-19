@@ -12,6 +12,8 @@
   python generate_match_report.py 19683241 --tactical-only    # 仅生成战术报告
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -22,7 +24,10 @@ import time
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -174,6 +179,8 @@ def generate_tactical_report_v2(raw, config: dict, output_dir: Path):
             """从文章页提取比赛相关图片。
             优先队名/关键词匹配，无匹配时宽模式兜底（文章来自豆包搜索，页面本身相关）。
             """
+            if BeautifulSoup is None:
+                return []
             try:
                 r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
                                 timeout=15, allow_redirects=True, verify=False)
