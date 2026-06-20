@@ -24,6 +24,8 @@ from pathlib import Path
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, THIS_DIR)
 
+from src.utils.player_names import to_chinese as _cn
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -100,7 +102,8 @@ def generate_tactical_narrative(raw, tactical_data: dict, config: dict) -> str:
     return llm.generate(sys_p, user_p)
 
 
-def generate_pressing_narrative(raw, tactical_data: dict, config: dict) -> str:
+def generate_pressing_narrative(raw, tactical_data: dict, config: dict,
+                                spatial_context: str = "") -> str:
     """生成压迫分析叙事（复用现有 pressing prompt）。"""
     from src.composer.pressing_prompt import build_pressing_prompt
     from src.composer.prompt_loader import PromptLoader
@@ -128,6 +131,7 @@ def generate_pressing_narrative(raw, tactical_data: dict, config: dict) -> str:
         ppda_trend, possession_trend, shot_segments,
         def_actions, goal_events,
         score.home, score.away, loader,
+        spatial_context=spatial_context,
     )
     return llm.generate(sys_p, user_p)
 
@@ -168,7 +172,7 @@ def _build_goal_events(raw) -> list[dict]:
             team_label = "home" if e.team_id == raw.home_team.id else "away"
             goals.append({
                 "minute": e.time_elapsed,
-                "label": e.player_name or "",
+                "label": _cn(e.player_name) or "",
                 "team": team_label,
             })
     return goals
@@ -250,8 +254,66 @@ def generate_fusion_report(
     tactical_narrative = generate_tactical_narrative(raw, tactical_data, config)
     logger.info(f"  战术叙事: {len(tactical_narrative)} 字符")
 
+    # 3.5. 加载球员空间行为数据（视觉AI解析缓存）
+    from src.engine.vision_analyzer import load_vision_cache, run_vision_analysis
+    from src.composer.spatial_summary import (
+        build_player_spatial_portrait,
+        build_team_spatial_synthesis,
+        build_pressing_spatial_context,
+        get_team_structured_players,
+    )
+
+    vision_data = load_vision_cache(match_id)
+    if vision_data is None:
+        logger.info("  视觉解析缓存不存在，自动触发豆包视觉模型逐人读图...")
+        vision_data = run_vision_analysis(match_id, config=config, force=False)
+        if vision_data is None:
+            logger.warning("  视觉解析失败，跳过球员空间行为章节。")
+        else:
+            logger.info(f"  视觉解析完成: {len(vision_data)} 人")
+
+    player_spatial_portrait = ""
+    team_spatial_synthesis = ""
+    pressing_spatial_context = ""
+    if vision_data:
+        player_spatial_portrait = build_player_spatial_portrait(
+            match_id, vision_data=vision_data, top_n=12
+        )
+        team_spatial_synthesis = build_team_spatial_synthesis(
+            match_id, vision_data=vision_data,
+            left_team=home_name, right_team=away_name,
+        )
+        pressing_spatial_context = build_pressing_spatial_context(
+            match_id, vision_data=vision_data
+        )
+        logger.info(f"  球员空间行为: {len(player_spatial_portrait)} 字符")
+        logger.info(f"  球队空间合成: {len(team_spatial_synthesis)} 字符")
+
+        # 3.6. 生成战术速写概览图
+        tactical_sketch_path = ""
+        try:
+            from src.visualizer.tactical_sketch import plot_tactical_sketch
+            home_players, away_players = get_team_structured_players(
+                match_id, vision_data=vision_data, top_n=8
+            )
+            images_dir = output_dir / "images"
+            images_dir.mkdir(parents=True, exist_ok=True)
+            sketch_path = str(images_dir / "tactical_sketch.png")
+            match_score = f"{score.home} - {score.away}"
+            plot_tactical_sketch(
+                team_spatial_synthesis, home_name, away_name,
+                home_players, away_players,
+                sketch_path, dpi=150, match_score=match_score,
+            )
+            tactical_sketch_path = "images/tactical_sketch.png"
+            logger.info(f"  战术速写图: {tactical_sketch_path}")
+        except Exception as e:
+            logger.warning(f"  战术速写图生成跳过: {e}")
+
     # 4. 生成压迫叙事
-    pressing_narrative = generate_pressing_narrative(raw, tactical_data, config)
+    pressing_narrative = generate_pressing_narrative(
+        raw, tactical_data, config, spatial_context=pressing_spatial_context
+    )
     logger.info(f"  压迫叙事: {len(pressing_narrative)} 字符")
 
     # 5. 加载新闻素材
@@ -272,6 +334,8 @@ def generate_fusion_report(
         raw, tactical_data, tactical_narrative, pressing_narrative,
         pre_news=pre_news, match_news=match_news, post_news=post_news,
         loader=loader,
+        player_spatial_portrait=player_spatial_portrait,
+        team_spatial_synthesis=team_spatial_synthesis,
     )
 
     # 7. LLM 生成融合文章

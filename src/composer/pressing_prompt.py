@@ -22,6 +22,7 @@ def build_pressing_prompt(
     score_away: int,
     loader: PromptLoader | None = None,
     match_overview: str = "",
+    spatial_context: str = "",
 ) -> tuple[str, str]:
     """返回 (system_prompt, user_prompt)。"""
     if loader is None:
@@ -84,8 +85,8 @@ def build_pressing_prompt(
 
     full_parts = [
         f"全场汇总:",
-        f"  {home_name} xG {h_xg_total:.2f} | 射门 {h_shot_total}({h_on_total}正) | 抢断+拦截 {h_def_total} | 犯规 {h_foul_total} | 平均压迫强度 {h_avg_ppda}",
-        f"  {away_name} xG {a_xg_total:.2f} | 射门 {a_shot_total}({a_on_total}正) | 抢断+拦截 {a_def_total} | 犯规 {a_foul_total} | 平均压迫强度 {a_avg_ppda}",
+        f"  {home_name} 预期进球 {h_xg_total:.2f} | 射门 {h_shot_total}({h_on_total}正) | 抢断+拦截 {h_def_total} | 犯规 {h_foul_total} | 平均压迫强度 {h_avg_ppda}",
+        f"  {away_name} 预期进球 {a_xg_total:.2f} | 射门 {a_shot_total}({a_on_total}正) | 抢断+拦截 {a_def_total} | 犯规 {a_foul_total} | 平均压迫强度 {a_avg_ppda}",
     ]
 
     winner = home_name if score_home > score_away else (away_name if score_away > score_home else "双方")
@@ -114,6 +115,7 @@ def build_pressing_prompt(
         kwargs["goal_text"] = "  本场无进球"
 
     kwargs["match_overview"] = match_overview
+    kwargs["spatial_context"] = spatial_context
 
     return loader.render("pressing", **kwargs)
 

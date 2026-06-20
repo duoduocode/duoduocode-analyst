@@ -12,6 +12,7 @@ from typing import Optional
 
 from src.collector.api_client import RawMatchData, MatchEvent
 from src.composer.prompt_loader import PromptLoader
+from src.utils.player_names import to_chinese as _cn
 
 
 # ═══════════════════════════════════════════════
@@ -53,7 +54,7 @@ def build_event_timeline_with_trust(raw: RawMatchData) -> str:
         team_name = raw.home_team.name if e.team_id == raw.home_team.id else raw.away_team.name
         known.append(f"分钟: 第{e.time_elapsed}分钟")
         known.append(f"球队: {team_name}")
-        known.append(f"球员: {e.player_name or '未知'}")
+        known.append(f"球员: {_cn(e.player_name) or '未知'}")
 
         # 事件类型
         type_map = {"Goal": "进球", "Card": "纪律处罚", "subst": "换人", "VAR": "VAR介入"}
@@ -61,7 +62,7 @@ def build_event_timeline_with_trust(raw: RawMatchData) -> str:
 
         # 助攻（仅当数据中存在）
         if e.assist_name:
-            known.append(f"助攻者: {e.assist_name}")
+            known.append(f"助攻者: {_cn(e.assist_name)}")
 
         # 进球方式（仅当 detail 指明）
         if e.detail == "owngoal":
@@ -95,26 +96,30 @@ def build_event_timeline_with_trust(raw: RawMatchData) -> str:
 
 def _build_safe_description(e: MatchEvent, team_name: str) -> str:
     """根据已知数据构建安全的事件描述指引。"""
-    player = e.player_name or "某球员"
+    player = _cn(e.player_name) or "某球员"
 
     if e.event_type == "Goal":
         if e.detail == "owngoal":
             return f"你可以写：{team_name}的{player}打入乌龙球。"
         elif e.detail == "goal_penalty":
             if e.assist_name:
-                return f"你可以写：{player}点球命中（{e.assist_name}制造点球）。"
+                return f"你可以写：{player}点球命中（{_cn(e.assist_name)}制造点球）。"
             return f"你可以写：{player}点球命中。"
         elif e.detail == "missed_penalty":
             return f"你可以写：{player}点球罚失。"
         else:
             if e.assist_name:
-                return f"你可以写：{player}破门得分（{e.assist_name}助攻）。禁止脑补射门方式（头球/推射/远射等），也禁止脑补传球路线。"
+                return f"你可以写：{player}破门得分（{_cn(e.assist_name)}助攻）。禁止脑补射门方式（头球/推射/远射等），也禁止脑补传球路线。"
             else:
                 return f"你可以写：{player}破门得分。禁止脑补助攻者、射门方式和配合细节。"
 
     elif e.event_type == "Card":
         card_type = "黄牌" if "yellow" in (e.detail or "") else "红牌"
-        return f"你可以写：{player}吃到{card_type}。"
+        desc = f"你可以写：{player}吃到{card_type}。"
+        # 红牌事件：提示引用新闻中的背景信息（如新规首例等）
+        if card_type == "红牌":
+            desc += " 如果上方新闻素材中提供了该红牌的背景信息（如新规首例、历史性判罚等），请务必在叙事中引用。"
+        return desc
 
     elif e.event_type == "subst":
         return f"你可以写：{player}被换下/换上（换人事件）。"
@@ -195,14 +200,14 @@ def _build_shot_story(match_flow: dict, home_name: str, away_name: str) -> str:
             a_s_on = a_on[i] if i < len(a_on) else 0
             h_x = h_xg[i] if i < len(h_xg) else 0
             a_x = a_xg[i] if i < len(a_xg) else 0
-            lines.append(f"  {wn}  {home_name} {h_s}射({h_s_on}正) xG {h_x:.3f}   vs   {away_name} {a_s}射({a_s_on}正) xG {a_x:.3f}")
+            lines.append(f"  {wn}  {home_name} {h_s}射({h_s_on}正) 预期进球 {h_x:.3f}   vs   {away_name} {a_s}射({a_s_on}正) 预期进球 {a_x:.3f}")
 
     h_xg_total = shot_segs.get("home_xg_total", 0)
     a_xg_total = shot_segs.get("away_xg_total", 0)
     h_xgot_total = shot_segs.get("home_xgot_total", 0)
     a_xgot_total = shot_segs.get("away_xgot_total", 0)
 
-    lines.append(f"\n  全场累计: {home_name} xG {h_xg_total:.2f} / xGOT {h_xgot_total:.2f};  {away_name} xG {a_xg_total:.2f} / xGOT {a_xgot_total:.2f}")
+    lines.append(f"\n  全场累计: {home_name} 预期进球 {h_xg_total:.2f} / 预期射正进球 {h_xgot_total:.2f};  {away_name} 预期进球 {a_xg_total:.2f} / 预期射正进球 {a_xgot_total:.2f}")
 
     if h_xgot_total > 0 and h_xg_total > 0:
         h_quality = "射门质量高" if h_xgot_total > h_xg_total * 0.9 else "射门质量偏低"
@@ -223,7 +228,7 @@ def _build_event_impact_text(match_flow: dict) -> str:
     lines = []
     for iw in impact_windows:
         mi = iw["minute"]
-        player = iw["player"]
+        player = _cn(iw["player"])
         etype = iw["event_type"]
 
         gt = "goal_team"
@@ -245,8 +250,8 @@ def _build_event_impact_text(match_flow: dict) -> str:
         lines.append(f"    对方控球率:   {poss[op]['before']}% → {poss[op]['after']}%（{o_poss_dir}{abs(o_poss_delta):.1f}%）")
         lines.append(f"    进球方射门:   {sht[gt]['before']} → {sht[gt]['after']}（{'+' if g_shot_delta > 0 else ''}{g_shot_delta}）")
         lines.append(f"    对方射门:     {sht[op]['before']} → {sht[op]['after']}（{'+' if o_shot_delta > 0 else ''}{o_shot_delta}）")
-        lines.append(f"    进球方xG近似: {xg[gt]['before']} → {xg[gt]['after']}（{'+' if xg[gt]['after'] - xg[gt]['before'] > 0 else ''}{xg[gt]['after'] - xg[gt]['before']:.3f}）")
-        lines.append(f"    对方xG近似:   {xg[op]['before']} → {xg[op]['after']}（{'+' if xg[op]['after'] - xg[op]['before'] > 0 else ''}{xg[op]['after'] - xg[op]['before']:.3f}）")
+        lines.append(f"    进球方预期进球: {xg[gt]['before']} → {xg[gt]['after']}（{'+' if xg[gt]['after'] - xg[gt]['before'] > 0 else ''}{xg[gt]['after'] - xg[gt]['before']:.3f}）")
+        lines.append(f"    对方预期进球:   {xg[op]['before']} → {xg[op]['after']}（{'+' if xg[op]['after'] - xg[op]['before'] > 0 else ''}{xg[op]['after'] - xg[op]['before']:.3f}）")
         lines.append("")
 
     return "\n".join(lines)
@@ -366,6 +371,8 @@ def build_fusion_prompt(
     post_news: str = "",
     loader: PromptLoader | None = None,
     match_overview: str = "",
+    player_spatial_portrait: str = "",
+    team_spatial_synthesis: str = "",
 ) -> tuple[str, str]:
     """组装融合比赛报道的 LLM prompt。
 
@@ -453,6 +460,8 @@ def build_fusion_prompt(
         pressing_cost=prs_sections.get("压迫代价", "（无）"),
         exec_story=exec_story,
         coaching_story=coaching_story,
+        player_spatial_portrait=player_spatial_portrait,
+        team_spatial_synthesis=team_spatial_synthesis,
     )
 
 
