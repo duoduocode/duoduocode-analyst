@@ -1,7 +1,7 @@
 # AGENTS.md — AI 足球分析员 (Football Analyst)
 
 > 本文档供 AI Agent 理解项目上下文、架构与常见问题，便于在新环境中快速上手调试。
-> 最后更新: 2026-06-21
+> 最后更新: 2026-06-23
 
 ---
 
@@ -667,90 +667,87 @@ python generate_fusion_report.py 19609173 --no-news  # 不加载新闻素材（�
 
 ---
 
-## 13. 融合比赛报道完整管线 (generate_fusion_report.py + vision_analyzer.py)
+## 13. 融合比赛报道完整管线 (generate_fusion_report.py)
 
-### 13.1 整体架构
+### 13.1 核心架构
 
 ```
-                    阶段一: generate_match_report.py (数据 + 图表 + 新闻)
-                                           │
-                    ┌──────────────────────┼──────────────────────┐
-                    ▼                      ▼                      ▼
-            raw_data.json          tactical_data          web_context/*.txt
-            players_v6.json        战术图表 PNG           球员卡片 PNG
-                    │                      │                      │
-                    └────────────┬─────────┴──────────────────────┘
-                                 │
-                                 ▼
-  阶段二: generate_fusion_report.py (融合报道，自动触发视觉解析)
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  1. compute_tactical_analysis()  → 战术数据                      │
-  │  2. LLM 战术叙事 (tactical_prompt.py + DeepSeek)                  │
-  │  3.5 加载视觉缓存 (data/computed/{id}_vision_analysis.json)       │
-  │      └─ 若缓存不存在 → 自动调用 run_vision_analysis()            │
-  │         ├─ 豆包视觉模型逐人读图（热力图/传球/推进/射门）            │
-  │         └─ 写入缓存 (~3.6 分钟)                                   │
-  │      └─ spatial_summary.py:                                       │
-  │         ├─ _translate_output()     坐标→足球语言翻译              │
-  │         ├─ build_player_spatial_portrait()   球员个体空间特写      │
-  │         ├─ build_team_spatial_synthesis()    球队整体空间形态      │
-  │         └─ build_pressing_spatial_context()  压迫空间上下文        │
-  │  4. LLM 压迫叙事 (pressing_prompt.py + DeepSeek, 注入空间上下文)   │
-  │  5. load_news() → 赛前/赛况/赛后新闻                              │
-  │  6. build_fusion_prompt() → 全部素材组装单一 Prompt                │
-  │  7. DeepSeek 生成 fusion_report.md                                │
-  │  8. generate_fusion_html() → fusion_report.html                   │
-  └──────────────────────────────────────────────────────────────────┘
+generate_fusion_report.py (主入口)
+    │
+    ├── ① 数据加载层
+    │   ├── load_raw_data()              → RawMatchData (球员/事件/统计)
+    │   ├── load_news()                  → 赛前/赛况/赛后新闻文本
+    │   └── load_vision_cache()          → 视觉解析缓存 (热力图+传球方向)
+    │
+    ├── ② 计算引擎层
+    │   ├── compute_tactical_analysis()       → 战术数据 (match_flow / coaching / signals)
+    │   └── vision_analyzer.run_vision_analysis() → 逐人视觉解析 (无缓存时自动触发)
+    │
+    ├── ③ 叙事生成层 (LLM — DeepSeek)
+    │   ├── generate_tactical_narrative()   → 战术叙事 (4 段: 画像/演绎/验证/博弈)
+    │   └── generate_pressing_narrative()   → 压迫叙事 (3 段: 布局/回报/代价)
+    │
+    ├── ④ 空间合成层 (代码 — 无 LLM)
+    │   ├── build_player_spatial_portrait()   → 球员空间行为 (Top 12 数据卡)
+    │   ├── build_team_tactical_synthesis()   → 球队战术合成 (进攻倾向 + 三路通道分级 + 枢纽 + 阵型)
+    │   └── build_pressing_spatial_context()  → 压迫空间上下文
+    │
+    ├── ⑤ 图表生成层
+    │   └── plot_tactical_synthesis()         → tactical_synthesis.png
+    │
+    └── ⑥ 融合写入层 (LLM — DeepSeek)
+        ├── build_fusion_prompt()             → 组装最终 prompt (fusion_report.yaml)
+        ├── llm.generate()                    → 融合报道正文 (~3000 tokens)
+        └── generate_fusion_html()            → HTML 输出
 ```
 
-### 13.2 视觉解析引擎 (vision_analyzer.py)
+### 13.2 数据流
 
-**作用**: 用豆包视觉模型逐一对球员的热力图、传球图、推进图、射门图进行空间行为解析。
+```
+原始数据 (raw_data.json)
+    │
+    ├── 球员热力图 PNG ──→ vision_analyzer (豆包视觉模型) ──→ vision_cache.json
+    │                        逐人提取: 活动区域、传球方向、带球推进距离
+    │
+    ├── 球员统计 (SportMonks) ──→ player_insights_v6 ──→ 评分/射门/传球/推进
+    │
+    └── 事件/趋势 (events + trends) ──→ tactical_insights ──→ match_flow / coaching
+        │
+        ▼
+    compute_tactical_analysis()  → tactical_data (dict)
+        ├── match_flow:    ppda, possession, shots, xg (逐窗口/全场)
+        ├── coaching:      style_clash, 阵型线索, 对位分析, 攻守比例
+        └── signals:       战术信号 (压节奏/闪击/反击/阵地战等)
+```
 
-**触发方式**:
-- **自动**: `generate_fusion_report.py` 运行到步骤 3.5 时，若缓存不存在则自动调用（首次流水线无需手动干预）
-- **手动**: `python src/engine/vision_analyzer.py 19609173`（首次） / `--force`（重跑）
+### 13.3 视觉解析引擎 (vision_analyzer.py)
 
-**关键机制**:
+用豆包视觉模型逐人对热力图、传球图、推进图、射门图进行空间行为解析。
 
 | 机制 | 说明 |
 |------|------|
-| **方向注入** | `_get_team_names()` 从 `output/{match_id}_{left}_vs_{right}` 目录名提取左右队名 → `_build_orientation()` 为每队注入朝向说明（主队: 左→右攻，画面上方=左路；客队: 右→左攻，画面上方=右路） |
-| **画面坐标输出** | 模型输出"左上/右上/左下/右下"等画面坐标，由 Python 端翻译为足球语言（见 13.4） |
-| **缓存优先** | 首次完整解析后写入 `data/computed/{match_id}_vision_analysis.json`，后续重复使用 |
-| **thinking disabled** | 豆包 Responses API 添加 `"thinking": {"type": "disabled"}` 避免思考过程消耗 token |
-| **进度即时输出** | `print(flush=True)` 逐人实时显示进度（32人约 3.6 分钟） |
+| **方向注入** | 从目录名提取左右队名 → 为每队注入朝向说明（主队: 左→右攻，画面上方=左路；客队: 右→左攻，画面上方=右路） |
+| **画面坐标输出** | 模型输出"左上/右上/左下/右下"等画面坐标，由 Python 端翻译为足球语言（见 13.5） |
+| **缓存优先** | 首次完成后写入 `data/computed/{match_id}_vision_analysis.json` |
+| **thinking disabled** | `"thinking": {"type": "disabled"}` 避免思考消耗 token |
 
-**VISION_PROMPT_TEMPLATE 结构**:
-```
-你是足球数据分析师。请分析{player_name}（{team_name}队，位置{position}，出场{minutes}分钟）的数据。
-已知持球推进数据: ...
-{orientation}  ← 球队方向说明
+### 13.4 空间合成器 (spatial_summary.py)
 
-逐图回答:
-1. 热力图：画面左上/右上/左下/右下四块区域的活动密度
-2. 传球图：传球方向(向前/横向/回传)、短传/长传、发起点在画面左半侧/右半侧
-3. 带球推进图：带球方向、起点在画面左半侧/右半侧
-4. 射门图：禁区内外、画面左侧/中间/右侧
-```
+代码层（非 LLM）将视觉解析 + SportMonks 统计数据进行跨球员聚合，产出结构化战术数据。**设计原则：不暴露「N人覆盖」等计数式数据，只输出倾向性描述。**
 
-### 13.3 空间摘要模块 (spatial_summary.py)
+| 函数 | 产出 | 输出格式示例 |
+|------|------|-------------|
+| `build_team_tactical_synthesis()` | 进攻倾向 + 三路通道 + 枢纽 + 阵型 | `进攻倾向: 进攻重心在中路`<br>`◆ 中路: 主力方向 — 厄德高、哈兰德`<br>`控制枢纽: 后场中路 — 厄德高、佩德森 在此区域反复接球组织` |
+| `build_player_spatial_portrait()` | Top 12 球员数据卡 | 活动区域、传球前/横/回、推进距离、触球数、射门/进球/xG |
+| `build_pressing_spatial_context()` | 压迫空间上下文 | 两队进攻核心区域特征 |
 
-提供三种产出:
+**通道分级规则**：占比 ≥40% → 主力方向，≥25% → 辅助通道，<25% → 次要通道。
 
-| 函数 | 作用 | 输出 |
-|------|------|------|
-| `build_player_spatial_portrait()` | 完整球员特写文本（含推进数据+防守数据+视觉解析+中文名） | 插入 fusion_report prompt 作为数据源 |
-| `build_team_spatial_synthesis()` | 球队级空间形态（按左右偏重分类 + 贡献值前8人） | 插入战术速写章节作为聚合参考 |
-| `build_pressing_spatial_context()` | 压迫分析专用的空间上下文（两队进攻核心区域特征） | 注入 pressing prompt |
+**阵型线索**：防线高位/靠后、边后卫参与度、前锋回撤/顶前、宽度偏向。
 
-### 13.4 坐标→足球语言翻译表
+### 13.5 坐标→足球语言翻译表
 
-**核心问题**: 豆包视觉模型分不清"左路/右路"，但能可靠识别"画面左上/右上/左下/右下"。解决方案是三层映射：
-
-1. **Vision prompt**: 模型只输出画面坐标（"左上/右上/左下/右下"），不说"左路/右路"
-2. **翻译表**: `_COORD_TRANSLATE` 按球队映射画面坐标→足球语言
-3. **区分两个维度**: X轴=球门方向（防守半场 vs 进攻半场）+ Y轴=边线方向（左路 vs 右路）
+豆包视觉模型分不清"左路/右路"，但能可靠识别画面坐标。解决方案是三层映射：
 
 ```
 图表方向固定: 左侧=主队球门, 右侧=客队球门
@@ -768,38 +765,92 @@ python generate_fusion_report.py 19609173 --no-news  # 不加载新闻素材（�
   画面上方 = 右路                 画面下方 = 左路
 ```
 
-### 13.5 融合报道章节结构
+### 13.6 战术合成图 (tactical_sketch.py)
 
-`fusion_report.yaml` 定义的报告结构:
+`src/visualizer/tactical_sketch.py` → 单张 PNG (20×12", dpi=150)，在球场背景上叠加战术信息。
 
-| 章节 | 字数 | 内容来源 |
-|------|------|---------|
-| **开篇钩子** | 100-150 | 核心战术矛盾 + 比分 + 关键数据 |
-| **战术速写** | 500-700 | 战术分析 + 球员空间行为 + 球员数据 + 赛况 → 两队体系分述 |
-| **走势拆解** | 200-250 | 战术演绎 + 时间线 + 逐窗口数据 + 事件冲击 |
-| **压迫博弈** | 150-200 | 压迫布局/回报/代价 + 空间维度联动 |
-| **胜负手** | 150-180 | 战术验证 + 战术博弈 + 对位分析 |
-| **收尾** | 80-100 | 回扣开篇矛盾 + 战术定论 |
-
-### 13.6 命名规范
-
-| 类别 | 规则 | 示例 |
+| 元素 | 布局 | 参数 |
 |------|------|------|
-| **球员名** | 目录/缓存用英文，报告正文全中文 | `Kenan Yıldız` → `伊尔迪兹` |
-| **指标** | 报告禁止出现 xG/xGOT/PPDA 等缩写 | `xG` → `预期进球`，`PPDA` → 转换为"对手每 N 脚传球被抢断一次" |
-| **图表术语** | 禁止"热力图""传球图""视觉效果"等词 | 用"活动集中在""传球方向以…为主""带球从…侧发起" |
-| **战术脑补** | 禁止没有数据支撑的意图/配合描述 | 只能说"他在哪/往哪传/往哪带/在哪射门" |
+| 球场 + 中线 + 方向箭头 | y=0→80, 中线 x=60 | 队名 + 比分标注 |
+| **三路方块** | home: x=14→56; away: x=64→106 | 宽 42px, 纯 Rectangle, 不越中线 |
+| 方块颜色 | 深绿 ≥40%、中绿 ≥25%、浅绿 <25% | 绿/黄/红 三路区分 |
+| 标签格式 | `左路 30%`，条内贴边 | home 左对齐, away 右对齐, 字号 15pt |
+| **阵型线索行** | y=-5 | 防线高位/靠后 \| 边卫参与进攻 \| 前锋回撤/顶前, 字号 9pt |
+| **传球倾向条** | y=-14, bar_h=7 | 向前(绿)/横向(黄)/回传(红) 三段, 字号 9pt |
 
-### 13.7 新闻素材利用
+> 布局顺序（上→下）：球场 → 阵型线索 → 传球倾向条。ylim 扩至 -22。
 
-每场比赛通过豆包联网搜索获取三轮新闻:
-- `web_context/pre.txt`: 赛前阵容/伤病/前瞻
-- `web_context/match.txt`: 战报/关键事件/首发阵容
-- `web_context/post.txt`: 赛后评价/纪录/出线形势
+### 13.7 融合报道 Prompt (fusion_report.yaml)
 
-`fusion_report.yaml` 中的「新闻素材利用指引」要求 LLM 主动融合:
-- 历史性事件（新规首例、纪录打破、里程碑）
-- 赛后球员/教练原话引用
-- 关键判罚的赛后讨论
+**输入素材**：
 
-这些素材是区分"数据报告"和"比赛报道"的核心。
+| 类别 | 内容 |
+|------|------|
+| 比赛信息 | 赛事、场地、对阵、比分 |
+| 新闻素材 | 赛前背景 / 赛况 / 赛后评论（豆包联网搜索产出） |
+| 战术指标 | 控球/射门/xG/PPDA/压迫强度/攻守比例 |
+| 走势数据 | 逐窗口控球率、射门分布、压迫变化 |
+| 事件时间线 | 进球/红黄牌/换人/VAR，含已知信息限制 |
+| 战术叙事 | 4 段战术分析（画像/演绎/验证/博弈，LLM 生成） |
+| 压迫叙事 | 3 段压迫分析（布局/回报/代价，LLM 生成） |
+| 战术合成数据 | 进攻倾向 + 三路通道 + 枢纽 + 阵型 + 球员数据卡（代码生成） |
+
+**输出章节结构**（全文 1000-1300 字）：
+
+| 章节 | 字数 | 配图 | 内容 |
+|------|------|------|------|
+| 开篇钩子 | 100-150 | - | 核心战术矛盾 + 比分 + 关键数据 |
+| 战术速写 | 500-700 | [配图0] 战术合成图<br>[配图1] 雷达图 | 两队进攻体系分述、关键球员、战术博弈 |
+| 走势拆解 | 200-250 | [配图2] 控球曲线图 | 时间线 + 逐窗口数据 + 事件冲击 |
+| 压迫博弈 | 150-200 | [配图3] 压迫效果图 | 压迫布局/回报/代价 + 空间联动 |
+| 胜负手 | 150-180 | - | 战术验证 + 对位分析 + 赛后引用 |
+| 收尾 | 80-100 | - | 回扣开篇矛盾 + 战术定论 |
+
+**核心禁令**：
+
+1. **严禁虚构**：只写已知信息，不脑补射门方式/助攻/对话/氛围
+2. **禁止罗列球员名单**：不写「9人覆盖中路」，写「进攻重心压在中路」
+3. **禁止技术术语**：不出现「热力图」「热区」「PPDA」「zone」「高密度区域」
+4. **禁止颜色行话**：不出现「红色」「橙色」「高热区」，用「活动最频繁的区域」
+5. **数字格式**：一律阿拉伯数字
+6. **战术主张必须落地**：每个结论引用具体球员名 + 数据
+
+### 13.8 中间产物目录结构
+
+```
+output/{match_id}_{home}_vs_{away}/
+├── fusion_report.md              # 融合报道 Markdown
+├── fusion_report.html            # 融合报道 HTML
+├── fusion_intermediates/         # 调试产物
+│   ├── tactical_narrative.txt    # 战术叙事原文
+│   ├── pressing_narrative.txt    # 压迫叙事原文
+│   └── fusion_user_prompt.txt    # 最终 LLM prompt
+├── images/
+│   ├── tactical_synthesis.png    # 战术合成图（代码生成）
+│   ├── tactical_radar.png        # 战术雷达图
+│   ├── tactical_possession.png   # 控球曲线图
+│   └── pressing_effectiveness.png# 压迫效果图
+├── web_context/                  # 新闻素材（豆包产出）
+│   ├── pre.txt                   # 赛前
+│   ├── match.txt                 # 赛况
+│   └── post.txt                  # 赛后
+└── raw_data_debug.json
+```
+
+### 13.9 关键文件索引
+
+| 文件 | 职责 |
+|------|------|
+| `generate_fusion_report.py` | 主入口，调度整个管线 |
+| `src/composer/fusion_report.py` | 融合 prompt 组装 + HTML 生成 |
+| `src/composer/spatial_summary.py` | 球员/球队空间数据合成（进攻倾向、通道分级、枢纽、阵型） |
+| `src/composer/tactical_prompt.py` | 战术分析叙事 prompt |
+| `src/composer/pressing_prompt.py` | 压迫分析叙事 prompt |
+| `src/engine/vision_analyzer.py` | 豆包视觉模型逐人读图 |
+| `src/engine/tactical_insights.py` | 四层因果战术计算 |
+| `src/engine/player_insights_v6.py` | 球员评分与数据卡 |
+| `src/visualizer/tactical_sketch.py` | 战术合成图绘制（球场 + 方块 + 传球条） |
+| `src/generator/llm_client.py` | DeepSeek LLM 调用客户端 |
+| `prompts/fusion_report.yaml` | 融合报道写作 prompt 模板（章节结构 + 禁令 + 写作指引） |
+| `prompts/tactical_prompt.yaml` | 战术叙事 prompt 模板 |
+| `prompts/pressing_prompt.yaml` | 压迫叙事 prompt 模板 |

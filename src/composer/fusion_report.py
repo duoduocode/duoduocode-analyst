@@ -373,6 +373,7 @@ def build_fusion_prompt(
     match_overview: str = "",
     player_spatial_portrait: str = "",
     team_spatial_synthesis: str = "",
+    tactical_synthesis: str = "",
 ) -> tuple[str, str]:
     """组装融合比赛报道的 LLM prompt。
 
@@ -462,6 +463,7 @@ def build_fusion_prompt(
         coaching_story=coaching_story,
         player_spatial_portrait=player_spatial_portrait,
         team_spatial_synthesis=team_spatial_synthesis,
+        tactical_synthesis=tactical_synthesis,
     )
 
 

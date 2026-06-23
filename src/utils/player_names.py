@@ -58,6 +58,42 @@ _PLAYER_NAME_MAP: dict[str, str] = {
     "Richard Sánchez": "桑切斯",
     "Carlos Coronel": "科罗内尔",
     "Rodrigo Morínigo": "莫里尼戈",
+
+    # ═══ 挪威 (Norway) ═══
+    "Erling Haaland": "哈兰德",
+    "Martin Ødegaard": "厄德高",
+    "Alexander Sørloth": "索尔洛特",
+    "Antonio Nusa": "努萨",
+    "Oscar Bobb": "博布",
+    "Marcus Pedersen": "佩德森",
+    "Kristoffer Ajer": "阿耶尔",
+    "Julian Ryerson": "瑞尔森",
+    "Sander Berge": "贝格",
+    "Patrick Berg": "帕特里克·贝格",
+    "Fredrik Aursnes": "奥尔斯内斯",
+    "Andreas Schjelderup": "谢尔德鲁普",
+    "David Møller Wolfe": "沃尔夫",
+    "Torbjørn Heggem": "赫格姆",
+    "Leo Østigård": "厄斯蒂高",
+    "Ørjan Nyland": "尼兰",
+
+    # ═══ 塞内加尔 (Senegal) ═══
+    "Sadio Mané": "马内",
+    "Ismaïla Sarr": "伊斯梅拉·萨尔",
+    "Nicolas Jackson": "杰克逊",
+    "Kalidou Koulibaly": "库利巴利",
+    "Edouard Mendy": "爱德华·门迪",
+    "Idrissa Gana Gueye": "盖耶",
+    "Pape Gueye": "帕佩·盖耶",
+    "Pape Matar Sarr": "帕佩·马塔尔·萨尔",
+    "Lamine Camara": "卡马拉",
+    "Krépin Diatta": "迪亚塔",
+    "Ismail Jakobs": "雅各布斯",
+    "Moussa Niakhaté": "尼亚卡特",
+    "El Hadji Malick Diouf": "迪乌夫",
+    "Ibrahim Mbaye": "姆巴耶",
+    "Mory Diaw": "迪奥",
+    "Pathé Ismaël Ciss": "西斯",
 }
 
 

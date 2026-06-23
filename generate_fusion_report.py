@@ -260,7 +260,7 @@ def generate_fusion_report(
         build_player_spatial_portrait,
         build_team_spatial_synthesis,
         build_pressing_spatial_context,
-        get_team_structured_players,
+        build_team_tactical_synthesis,
     )
 
     vision_data = load_vision_cache(match_id)
@@ -275,6 +275,7 @@ def generate_fusion_report(
     player_spatial_portrait = ""
     team_spatial_synthesis = ""
     pressing_spatial_context = ""
+    tactical_synthesis = ""
     if vision_data:
         player_spatial_portrait = build_player_spatial_portrait(
             match_id, vision_data=vision_data, top_n=12
@@ -286,29 +287,27 @@ def generate_fusion_report(
         pressing_spatial_context = build_pressing_spatial_context(
             match_id, vision_data=vision_data
         )
+        tactical_synthesis = build_team_tactical_synthesis(match_id)
         logger.info(f"  球员空间行为: {len(player_spatial_portrait)} 字符")
         logger.info(f"  球队空间合成: {len(team_spatial_synthesis)} 字符")
+        logger.info(f"  战术合成: {len(tactical_synthesis)} 字符")
 
-        # 3.6. 生成战术速写概览图
-        tactical_sketch_path = ""
+        # 3.6. 生成战术合成图
+        tactical_synthesis_path = ""
         try:
-            from src.visualizer.tactical_sketch import plot_tactical_sketch
-            home_players, away_players = get_team_structured_players(
-                match_id, vision_data=vision_data, top_n=8
-            )
+            from src.visualizer.tactical_sketch import plot_tactical_synthesis
             images_dir = output_dir / "images"
             images_dir.mkdir(parents=True, exist_ok=True)
-            sketch_path = str(images_dir / "tactical_sketch.png")
-            match_score = f"{score.home} - {score.away}"
-            plot_tactical_sketch(
-                team_spatial_synthesis, home_name, away_name,
-                home_players, away_players,
-                sketch_path, dpi=150, match_score=match_score,
+            match_score_str = f"{score.home} - {score.away}"
+            plot_tactical_synthesis(
+                match_id, home_name, away_name,
+                str(images_dir), dpi=150, match_score=match_score_str,
+                vision_data=vision_data,
             )
-            tactical_sketch_path = "images/tactical_sketch.png"
-            logger.info(f"  战术速写图: {tactical_sketch_path}")
+            tactical_synthesis_path = "images/tactical_synthesis.png"
+            logger.info(f"  战术合成图: {tactical_synthesis_path}")
         except Exception as e:
-            logger.warning(f"  战术速写图生成跳过: {e}")
+            logger.warning(f"  战术合成图生成跳过: {e}")
 
     # 4. 生成压迫叙事
     pressing_narrative = generate_pressing_narrative(
@@ -336,6 +335,7 @@ def generate_fusion_report(
         loader=loader,
         player_spatial_portrait=player_spatial_portrait,
         team_spatial_synthesis=team_spatial_synthesis,
+        tactical_synthesis=tactical_synthesis,
     )
 
     # 7. LLM 生成融合文章
