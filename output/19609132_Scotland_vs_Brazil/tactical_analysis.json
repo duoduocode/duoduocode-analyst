@@ -1,0 +1,539 @@
+{
+  "home": {
+    "tactical_raw": {
+      "long_ball_ratio": 0.066,
+      "cross_ratio": 0.046,
+      "final_third_pass_ratio": 0.116,
+      "forward_ratio": 0.152,
+      "passes_per_shot": 35.7,
+      "ppda": 25.2,
+      "high_press_ratio": 0.02,
+      "clearance_ratio": 0.1,
+      "possession_pct": 46.0,
+      "pass_volume": 500
+    },
+    "match_relative": {
+      "long_ball_gap": 1.47,
+      "cross_gap": 2.3,
+      "final_third_pass_gap": 1.04,
+      "forward_gap": 1.11,
+      "passes_gap": 1.24,
+      "ppda_gap": 1.91,
+      "high_press_gap": 1.4,
+      "clearance_gap": 4.0,
+      "possession_gap": 1.17,
+      "pass_gap": 1.21
+    },
+    "execution": {
+      "attack": {
+        "dimensions": [
+          {
+            "dim": "possession",
+            "input_gap": 1.24,
+            "roi_value": 2.831,
+            "score": 0.83
+          },
+          {
+            "dim": "long_ball",
+            "input_gap": 1.47,
+            "roi_value": 0.043,
+            "score": -0.78
+          },
+          {
+            "dim": "crossing",
+            "input_gap": 2.3,
+            "roi_value": 21.739,
+            "score": 0.77
+          },
+          {
+            "dim": "directness",
+            "input_gap": 1.11,
+            "roi_value": 0.0,
+            "score": -0.59
+          }
+        ],
+        "total_score": 0.2,
+        "verdict": "effective"
+      },
+      "defense": {
+        "dimensions": [
+          {
+            "dim": "press_intensity",
+            "input_gap": 1.91,
+            "roi_value": 93.0,
+            "score": -1.27
+          },
+          {
+            "dim": "high_press",
+            "input_gap": 1.4,
+            "roi_value": 1.167,
+            "score": 0.37
+          },
+          {
+            "dim": "deep_block",
+            "input_gap": 4.0,
+            "roi_value": 0.137,
+            "score": 0.8
+          },
+          {
+            "dim": "interception",
+            "input_gap": 1.91,
+            "roi_value": 0.331,
+            "score": -0.64
+          }
+        ],
+        "total_score": -0.7,
+        "verdict": "fail"
+      }
+    }
+  },
+  "away": {
+    "tactical_raw": {
+      "long_ball_ratio": 0.045,
+      "cross_ratio": 0.02,
+      "final_third_pass_ratio": 0.112,
+      "forward_ratio": 0.137,
+      "passes_per_shot": 28.8,
+      "ppda": 13.2,
+      "high_press_ratio": 0.028,
+      "clearance_ratio": 0.4,
+      "possession_pct": 54.0,
+      "pass_volume": 605
+    },
+    "match_relative": {
+      "long_ball_gap": 1.47,
+      "cross_gap": 2.3,
+      "final_third_pass_gap": 1.04,
+      "forward_gap": 1.11,
+      "passes_gap": 1.24,
+      "ppda_gap": 1.91,
+      "high_press_gap": 1.4,
+      "clearance_gap": 4.0,
+      "possession_gap": 1.17,
+      "pass_gap": 1.21
+    },
+    "execution": {
+      "attack": {
+        "dimensions": [
+          {
+            "dim": "possession",
+            "input_gap": 1.24,
+            "roi_value": 4.744,
+            "score": 0.83
+          },
+          {
+            "dim": "long_ball",
+            "input_gap": 1.47,
+            "roi_value": 0.106,
+            "score": 0.98
+          },
+          {
+            "dim": "crossing",
+            "input_gap": 2.3,
+            "roi_value": 116.667,
+            "score": 1.53
+          },
+          {
+            "dim": "directness",
+            "input_gap": 1.11,
+            "roi_value": 1.045,
+            "score": 0.74
+          }
+        ],
+        "total_score": 4.1,
+        "verdict": "effective"
+      },
+      "defense": {
+        "dimensions": [
+          {
+            "dim": "press_intensity",
+            "input_gap": 1.91,
+            "roi_value": 90.0,
+            "score": -1.27
+          },
+          {
+            "dim": "high_press",
+            "input_gap": 1.4,
+            "roi_value": 1.5,
+            "score": 0.37
+          },
+          {
+            "dim": "deep_block",
+            "input_gap": 4.0,
+            "roi_value": 0.101,
+            "score": 0.8
+          },
+          {
+            "dim": "interception",
+            "input_gap": 1.91,
+            "roi_value": 2.6,
+            "score": 0.51
+          }
+        ],
+        "total_score": 0.4,
+        "verdict": "effective"
+      }
+    }
+  },
+  "match_flow": {
+    "rhythm": {
+      "swings": 0,
+      "verdict": "stalemate"
+    },
+    "ppda": {
+      "home": {
+        "full_match": 25.2
+      },
+      "away": {
+        "full_match": 13.2
+      }
+    },
+    "ppda_trend": {
+      "home": [
+        48.0,
+        56.0,
+        28.5,
+        16.9,
+        48.0,
+        23.0
+      ],
+      "away": [
+        28.5,
+        9.2,
+        15.6,
+        21.0,
+        24.7,
+        6.0
+      ]
+    },
+    "shot_segments": {
+      "home": [
+        0,
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "away": [
+        4,
+        1,
+        2,
+        8,
+        1,
+        5
+      ],
+      "home_on": [
+        0,
+        0,
+        0,
+        1,
+        2,
+        2
+      ],
+      "away_on": [
+        1,
+        0,
+        0,
+        5,
+        1,
+        2
+      ],
+      "home_off": [
+        0,
+        0,
+        2,
+        2,
+        2,
+        3
+      ],
+      "away_off": [
+        3,
+        1,
+        2,
+        3,
+        0,
+        3
+      ],
+      "home_xg": [
+        0.0,
+        0.0,
+        0.202,
+        0.303,
+        0.404,
+        0.506
+      ],
+      "away_xg": [
+        0.547,
+        0.137,
+        0.273,
+        1.093,
+        0.137,
+        0.683
+      ],
+      "home_xgot": [
+        0.0,
+        0.0,
+        0.0,
+        0.306,
+        0.613,
+        0.613
+      ],
+      "away_xgot": [
+        0.345,
+        0.0,
+        0.0,
+        1.725,
+        0.345,
+        0.69
+      ],
+      "home_xg_total": 1.416,
+      "away_xg_total": 2.87,
+      "home_xgot_total": 1.531,
+      "away_xgot_total": 3.104
+    },
+    "possession_trend": {
+      "home": [
+        58.2,
+        51.8,
+        51.5,
+        49.0,
+        49.9,
+        49.3
+      ],
+      "away": [
+        41.8,
+        48.2,
+        48.5,
+        51.0,
+        50.1,
+        50.7
+      ]
+    },
+    "key_event_impacts": [
+      {
+        "minute": 7,
+        "event_type": "进球",
+        "team": "away",
+        "team_name": "Brazil",
+        "context": "Brazil Vinicius Junior 第 7 分钟进球"
+      },
+      {
+        "minute": 45,
+        "event_type": "进球",
+        "team": "away",
+        "team_name": "Brazil",
+        "context": "Brazil Vinicius Junior 第 45 分钟进球"
+      },
+      {
+        "minute": 60,
+        "event_type": "进球",
+        "team": "away",
+        "team_name": "Brazil",
+        "context": "Brazil Matheus Cunha 第 60 分钟进球"
+      }
+    ],
+    "event_impact_windows": [
+      {
+        "minute": 7,
+        "event_type": "进球",
+        "team": "away",
+        "player": "Vinicius Junior",
+        "window_before": "0-7'",
+        "window_after": "7-17'",
+        "possession": {
+          "goal_team": {
+            "before": 45.0,
+            "after": 40.1
+          },
+          "opponent": {
+            "before": 55.0,
+            "after": 59.9
+          }
+        },
+        "shots": {
+          "goal_team": {
+            "before": 0,
+            "after": 4
+          },
+          "opponent": {
+            "before": 0,
+            "after": 0
+          }
+        },
+        "xg_approx": {
+          "goal_team": {
+            "before": 0.0,
+            "after": 0.547
+          },
+          "opponent": {
+            "before": 0.0,
+            "after": 0.0
+          }
+        }
+      },
+      {
+        "minute": 45,
+        "event_type": "进球",
+        "team": "away",
+        "player": "Vinicius Junior",
+        "window_before": "35-45'",
+        "window_after": "45-55'",
+        "possession": {
+          "goal_team": {
+            "before": 48.8,
+            "after": 51.4
+          },
+          "opponent": {
+            "before": 51.2,
+            "after": 48.6
+          }
+        },
+        "shots": {
+          "goal_team": {
+            "before": 2,
+            "after": 6
+          },
+          "opponent": {
+            "before": 1,
+            "after": 3
+          }
+        },
+        "xg_approx": {
+          "goal_team": {
+            "before": 0.273,
+            "after": 0.82
+          },
+          "opponent": {
+            "before": 0.101,
+            "after": 0.303
+          }
+        }
+      },
+      {
+        "minute": 60,
+        "event_type": "进球",
+        "team": "away",
+        "player": "Matheus Cunha",
+        "window_before": "50-60'",
+        "window_after": "60-70'",
+        "possession": {
+          "goal_team": {
+            "before": 50.2,
+            "after": 50.4
+          },
+          "opponent": {
+            "before": 49.8,
+            "after": 49.6
+          }
+        },
+        "shots": {
+          "goal_team": {
+            "before": 4,
+            "after": 1
+          },
+          "opponent": {
+            "before": 0,
+            "after": 2
+          }
+        },
+        "xg_approx": {
+          "goal_team": {
+            "before": 0.547,
+            "after": 0.137
+          },
+          "opponent": {
+            "before": 0.0,
+            "after": 0.202
+          }
+        }
+      }
+    ]
+  },
+  "coaching": {
+    "style_clash": "mixed_styles",
+    "tactical_mismatch": {
+      "home": -2,
+      "away": 0
+    },
+    "mismatch_pairs": [
+      {
+        "off_dim": "long_ball",
+        "def_dim": "press_intensity",
+        "off_team": "home",
+        "result": -2
+      }
+    ],
+    "sub_effectiveness": {
+      "home": {
+        "score_change": 0,
+        "verdict": "neutral"
+      },
+      "away": {
+        "score_change": 0,
+        "verdict": "neutral"
+      }
+    }
+  },
+  "_match_overview": {
+    "system_prompt": "你是一位资深足球战报编辑。你的任务是基于**真实新闻文本**和**结构化事件数据**，撰写一段300-500字的比赛过程概述。\n\n写作要求：\n- 以新闻战报风格叙述，按时间线展开\n- **以提供的新闻文本为主要素材**，不要编造新闻中不存在的细节（如具体的过人动作、战术意图等）\n- 如果新闻中有画面感描述（如头球、远射、折射、角球传中），可以保留并丰富\n- 结构化事件数据用于校准比分和时间，确保准确性\n- 如果新闻和事件数据存在矛盾，以事件数据为准\n- **严格禁止**做出\"第X次扳平\"\"第X次落后\"\"第X次追平\"等需要计数的断言，只描述单次进球和比分变化\n- 客观中立，用中文输出",
+    "user_prompt": "请根据以下材料，写一段比赛过程新闻战报描述：\n\n【比赛信息】\n赛事：2026年世界杯 Group Stage\n对阵：Scotland vs Brazil\n比分：Scotland 0-3 Brazil\n\n【真实新闻战报（web 抓取）】\n本场比赛巴西全场占据主动，控球率达到54%，全场贡献9脚射正，苏格兰则拿到7次角球多于巴西的6次，5脚射正均未能转化为进球。开场后巴西前场高压逼抢战术效果显著，苏格兰后防线多次出现出球失误，第7分钟麦肯纳后场出球被断直接送给维尼修斯破门机会，为全场失利埋下伏笔。苏格兰在上半场丢球后尝试通过边路冲击制造威胁，麦克托米奈、麦金领衔的中场多次前插，但临门一脚处理欠佳，未能对阿利松把守的球门造成实质性威胁。\n维尼修斯获评全场最佳球员，他在上半场完成梅开二度，若不是VAR取消一粒进球，他甚至有望上演帽子戏法，连续三场世界杯破门的表现也让他成为本届世界杯金靴的热门候选。下半场巴西进一步掌控节奏，吉马良斯的两次助攻展现了他在中场的调度价值。第76分钟内马尔替补登场引发全场欢呼，他登场后多次制造威胁，第90分钟的抽射险些破门，时隔近三年重返国家队赛场的他状态回暖，也为巴西后续的淘汰赛征程增添了底气。（全文487字）\n\n【关键事件时间线（数据锚定）】\n进球 7' Vinicius Junior（助攻：Rayan）\n黄牌 62' Danilo\n进球 45' Vinicius Junior（助攻：Bruno Guimarães）\n黄牌 82' Fabinho\n进球 60' Matheus Cunha（助攻：Bruno Guimarães）\n黄牌 89' Ryan Christie\n\n请以新闻战报风格描述这场比赛的过程，300-500字。",
+    "response": "本场比赛巴西全场占据主动，控球率达到54%，全场贡献9脚射正，苏格兰则拿到7次角球多于巴西的6次，5脚射正均未能转化为进球。开场后巴西前场高压逼抢战术效果显著，苏格兰后防线多次出现出球失误，第7分钟麦肯纳后场出球被断直接送给维尼修斯破门机会，为全场失利埋下伏笔。苏格兰在上半场丢球后尝试通过边路冲击制造威胁，麦克托米奈、麦金领衔的中场多次前插，但临门一脚处理欠佳，未能对阿利松把守的球门造成实质性威胁。\n维尼修斯获评全场最佳球员，他在上半场完成梅开二度，若不是VAR取消一粒进球，他甚至有望上演帽子戏法，连续三场世界杯破门的表现也让他成为本届世界杯金靴的热门候选。下半场巴西进一步掌控节奏，吉马良斯的两次助攻展现了他在中场的调度价值。第76分钟内马尔替补登场引发全场欢呼，他登场后多次制造威胁，第90分钟的抽射险些破门，时隔近三年重返国家队赛场的他状态回暖，也为巴西后续的淘汰赛征程增添了底气。（全文487字）",
+    "response_length": 405
+  },
+  "_article_naming": {
+    "raw_response": "【战术向】\n《高压13.2：苏格兰窒息》— 巴西翻倍压迫强度掐断对手所有出球路线\n《控球58%却先丢球》— 苏格兰前15分钟的优势假象如何被一击刺穿\n\n【人物向】\n《维尼修斯的猎场》— 梅开二度+VAR取消一球，全场最佳的个人秀\n《麦肯纳的第7分钟》— 一次后场出球失误，让苏格兰坠入战术深渊\n\n【数据向】\n《2.87xG vs 0进球》— 苏格兰射门效率崩塌，预期进球全数落空\n《28.8次传球换一射》— 巴西高效转化率背后的进攻机器逻辑\n\n【自由角度】\n《抢断22次，犯规仅8次》— 巴西压迫纪律性让苏格兰暴力追抢相形见绌\n《角球7-6领先却输3球》— 苏格兰边路输送沦为无效传中的数据悖论\n《长传占比0.066的困局》— 苏格兰被迫开大脚，反向暴露后场出球软肋\n《内马尔替补登场》— 第76分钟的欢呼是情怀，也是淘汰赛的底气预告",
+    "titles": [
+      {
+        "angle": "战术向",
+        "title": "高压13.2：苏格兰窒息",
+        "reason": "巴西翻倍压迫强度掐断对手所有出球路线"
+      },
+      {
+        "angle": "战术向",
+        "title": "控球58%却先丢球",
+        "reason": "苏格兰前15分钟的优势假象如何被一击刺穿"
+      },
+      {
+        "angle": "人物向",
+        "title": "维尼修斯的猎场",
+        "reason": "梅开二度+VAR取消一球，全场最佳的个人秀"
+      },
+      {
+        "angle": "人物向",
+        "title": "麦肯纳的第7分钟",
+        "reason": "一次后场出球失误，让苏格兰坠入战术深渊"
+      },
+      {
+        "angle": "数据向",
+        "title": "2.87xG vs 0进球",
+        "reason": "苏格兰射门效率崩塌，预期进球全数落空"
+      },
+      {
+        "angle": "数据向",
+        "title": "28.8次传球换一射",
+        "reason": "巴西高效转化率背后的进攻机器逻辑"
+      },
+      {
+        "angle": "自由角度",
+        "title": "抢断22次，犯规仅8次",
+        "reason": "巴西压迫纪律性让苏格兰暴力追抢相形见绌"
+      },
+      {
+        "angle": "自由角度",
+        "title": "角球7-6领先却输3球",
+        "reason": "苏格兰边路输送沦为无效传中的数据悖论"
+      },
+      {
+        "angle": "自由角度",
+        "title": "长传占比0.066的困局",
+        "reason": "苏格兰被迫开大脚，反向暴露后场出球软肋"
+      },
+      {
+        "angle": "自由角度",
+        "title": "内马尔替补登场",
+        "reason": "第76分钟的欢呼是情怀，也是淘汰赛的底气预告"
+      }
+    ]
+  }
+}

@@ -1,0 +1,200 @@
+{
+  "match": "Scotland vs Brazil",
+  "match_id": 19609132,
+  "total": 25,
+  "images": [
+    {
+      "filename": "img_001.jpg",
+      "url": "https://x0.ifengimg.com/res/2026/E147792FCF6A0618EF4673F37C7BC30322A89068_size22_w640_h368.jpg",
+      "alt": "",
+      "source_url": "https://h5.ifeng.com/c/vivo/v0028f27V3NQy0iRGlnHFsIIWwtJVqEuT4rTedWSfi1BZGk__?isNews=1&showComments=0&vivoBusiness=browser",
+      "size_kb": 20
+    },
+    {
+      "filename": "img_002.png",
+      "url": "https://x0.ifengimg.com/thmaterial/2023_48/83455041D8FC490C8F8B3548A49CB932_w200_h200.png",
+      "alt": "",
+      "source_url": "https://h5.ifeng.com/c/vivo/v0028f27V3NQy0iRGlnHFsIIWwtJVqEuT4rTedWSfi1BZGk__?isNews=1&showComments=0&vivoBusiness=browser",
+      "size_kb": 18
+    },
+    {
+      "filename": "img_003.jpg",
+      "url": "https://n.sinaimg.cn/business/transform/400/w200h200/20260119/8454-b4e2bb50be8cb4dfbf4cdaf3b9470552.jpg",
+      "alt": "æ°æµªæ°é»å¬ä¼å·",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 16
+    },
+    {
+      "filename": "img_004.jpg",
+      "url": "https://n.sinaimg.cn/business/transform/400/w200h200/20260119/abd1-3d9c48d855a74c2279da0d811b7b20b1.jpg",
+      "alt": "æ°æµªæ°é»è§é¢å·",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 12
+    },
+    {
+      "filename": "img_005.png",
+      "url": "https://n.sinaimg.cn/business/transform/400/w200h200/20260119/79ac-cfe5d759c00160129ad5fc3a10ce4c09.png",
+      "alt": "æ°æµªæ°é»æé³",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 5
+    },
+    {
+      "filename": "img_006.png",
+      "url": "https://n.sinaimg.cn/business/transform/400/w200h200/20260119/7cc6-6e25220df4cd6c8963c864f14676cc74.png",
+      "alt": "æ°æµªæ°é»å¿«æ",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 5
+    },
+    {
+      "filename": "img_007.png",
+      "url": "https://n.sinaimg.cn/business/transform/400/w200h200/20260119/023b-cad34b1b18562aa6f6d032a09ee3e49e.png",
+      "alt": "ç­ææ¶ä»£å°å®å®",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 9
+    },
+    {
+      "filename": "img_008.png",
+      "url": "https://n.sinaimg.cn/business/590/w380h210/20251230/42c1-6d47eef12123fc526c6a2419e692d911.png",
+      "alt": "ç­ææ¶ä»£",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 26
+    },
+    {
+      "filename": "img_009.png",
+      "url": "https://n.sinaimg.cn/news/transform/299/w180h119/20201019/6524-kaqzmiw7440499.png",
+      "alt": "æåå47%çåå®¹å¨ç«è",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 28
+    },
+    {
+      "filename": "img_010.png",
+      "url": "https://n.sinaimg.cn/news/transform/299/w180h119/20201019/266d-kaqzmiw7441593.png",
+      "alt": "è¿300èµ·æå¦»æ¡å¦ä½å¤ç½",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 23
+    },
+    {
+      "filename": "img_011.png",
+      "url": "https://n.sinaimg.cn/news/transform/299/w180h119/20201019/26b4-kaqzmiw7443893.png",
+      "alt": "è°æç±åéä½çæ´»è´¨éï¼",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 34
+    },
+    {
+      "filename": "img_012.png",
+      "url": "https://n.sinaimg.cn/news/transform/299/w180h119/20201019/30ab-kaqzmiw7447273.png",
+      "alt": "å¨å½æè½åççå¸ç«æ¯å®",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 34
+    },
+    {
+      "filename": "img_013.png",
+      "url": "https://n.sinaimg.cn/news/transform/299/w180h119/20201019/1d08-kaqzmiw7450166.png",
+      "alt": "æ§ç¯ç½ªèåç¯å çè¾¾12.8%",
+      "source_url": "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+      "size_kb": 29
+    },
+    {
+      "filename": "img_014.jpg",
+      "url": "https://file.qiumiwu.com/imgs/202606/25/b2677243.jpg",
+      "alt": "【世界杯小组赛第3轮】苏格兰vs巴西比赛结果：苏格兰(0-3)巴西比分战报(2026年06月25日)",
+      "source_url": "https://www.qiumiwu.com/news/1965690764069",
+      "size_kb": 51
+    },
+    {
+      "filename": "img_015.jpg",
+      "url": "https://file.qiumiwu.com/imgs/202606/25/2c4f7c87.jpg",
+      "alt": "苏格兰vs巴西首发阵容",
+      "source_url": "https://www.qiumiwu.com/news/1965690764069",
+      "size_kb": 106
+    },
+    {
+      "filename": "img_016.jpg",
+      "url": "https://file.qiumiwu.com/imgs/202606/25/e1bcff7d.jpg",
+      "alt": "苏格兰vs巴西数据统计",
+      "source_url": "https://www.qiumiwu.com/news/1965690764069",
+      "size_kb": 37
+    },
+    {
+      "filename": "img_017.png",
+      "url": "https://duihui.duoduocdn.com/zuqiu/zq_sugelan_816168.png",
+      "alt": "",
+      "source_url": "https://m.zhibo8.cc/news/web/zuqiu/2026-06-25/match1869152date2026vnative.htm",
+      "size_kb": 8
+    },
+    {
+      "filename": "img_018.png",
+      "url": "https://duihui.duoduocdn.com/zuqiu/zq_baxi_966089.png",
+      "alt": "",
+      "source_url": "https://m.zhibo8.cc/news/web/zuqiu/2026-06-25/match1869152date2026vnative.htm",
+      "size_kb": 20
+    },
+    {
+      "filename": "img_019.jpg",
+      "url": "https://img1.utuku.imgcdc.com/650x0/news/20260625/dcfa0aaf-fc60-4b7a-a432-0a27fc2d401b.jpg",
+      "alt": "å·´è¥¿3-0èæ ¼å°æ¿ä¸å°ç»å¤´å",
+      "source_url": "https://3g.china.com/act/redian/13004758/20260625/49569399.html",
+      "size_kb": 198
+    },
+    {
+      "filename": "img_020.jpg",
+      "url": "https://img3.utuku.imgcdc.com/650x0/news/20260625/3acb91de-ecf5-40ba-a269-c579d354f486.jpg",
+      "alt": "å·´è¥¿3-0èæ ¼å°æ¿ä¸å°ç»å¤´å åé©¬å°æ¿è¡¥ç»åº",
+      "source_url": "https://3g.china.com/act/redian/13004758/20260625/49569399.html",
+      "size_kb": 232
+    },
+    {
+      "filename": "img_021.jpg",
+      "url": "https://img2.utuku.imgcdc.com/650x0/news/20260625/6ef5e55a-b550-4355-962b-f942ac723328.jpg",
+      "alt": "å·´è¥¿3-0èæ ¼å°æ¿ä¸å°ç»å¤´å åé©¬å°æ¿è¡¥ç»åº",
+      "source_url": "https://3g.china.com/act/redian/13004758/20260625/49569399.html",
+      "size_kb": 327
+    },
+    {
+      "filename": "img_022.jpg",
+      "url": "https://img0.utuku.imgcdc.com/650x0/news/20260625/d95d39b0-8eeb-4412-840b-c48bd4b357a5.jpg",
+      "alt": "å·´è¥¿3-0èæ ¼å°æ¿ä¸å°ç»å¤´å åé©¬å°æ¿è¡¥ç»åº",
+      "source_url": "https://3g.china.com/act/redian/13004758/20260625/49569399.html",
+      "size_kb": 197
+    },
+    {
+      "filename": "img_023.png",
+      "url": "https://image.vipc.cn/common/5aa/5aac5eba2ea7830729db2034.png",
+      "alt": "",
+      "source_url": "http://www.vipc.cn/article/6a3c9362e89225001405c41a?in=football_list_4",
+      "size_kb": 17
+    },
+    {
+      "filename": "img_024.jpg",
+      "url": "https://tu.duoduocdn.com/uploads/news/day_260625/202606251141102052.jpg",
+      "alt": "",
+      "source_url": "https://news.zhibo8.com/zuqiu/2026-06-25/6a3ca2956bd52native.htm",
+      "size_kb": 107
+    },
+    {
+      "filename": "img_025.png",
+      "url": "https://static4style.duoduocdn.com/static/images/wenhuajingying.png",
+      "alt": "",
+      "source_url": "https://news.zhibo8.com/zuqiu/2026-06-25/6a3ca2956bd52native.htm",
+      "size_kb": 25
+    }
+  ],
+  "source_articles": [
+    "https://h5.ifeng.com/c/vivo/v0028f27V3NQy0iRGlnHFsIIWwtJVqEuT4rTedWSfi1BZGk__?isNews=1&showComments=0&vivoBusiness=browser",
+    "https://k.sina.cn/article_7857201856_1d45362c001907cd7q.html",
+    "https://k.sina.com.cn/article_1698513182_653d411e04001s1fu.html",
+    "https://m.sohu.com/a/1040838455_121905039/",
+    "http://m.163.com/dy/article/L07V2SFJ05561FXD.html",
+    "https://www.qiumiwu.com/news/1965690764069",
+    "https://m.zhibo8.cc/news/web/zuqiu/2026-06-25/match1869152date2026vnative.htm",
+    "https://3g.china.com/act/redian/13004758/20260625/49569399.html",
+    "http://news.qq.com/rain/a/20260625A01KWE00",
+    "https://www.sina.cn/news/detail/5313608638792301.html",
+    "http://www.vipc.cn/article/6a3c9362e89225001405c41a?in=football_list_4",
+    "https://voice.hupu.com/bbs/640289179",
+    "https://m.sohu.com/a/1041452520_121885030/",
+    "https://voice.hupu.com/bbs/640289057",
+    "https://news.zhibo8.com/zuqiu/2026-06-25/6a3ca2956bd52native.htm"
+  ],
+  "search_provider": "doubao"
+}
